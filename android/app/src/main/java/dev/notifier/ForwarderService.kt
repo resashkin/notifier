@@ -38,7 +38,11 @@ class ForwarderService : NotificationListenerService() {
         // Our memory is RAM-only: after a reboot/update, treat what's already in the shade as forwarded
         // so unread history isn't sent again.
         try {
-            activeNotifications?.forEach { newItems(it) }
+            val prefs = Prefs(this)
+            activeNotifications?.forEach {
+                recordSeen(prefs, it)  // so the settings Mini App lists these apps right away
+                newItems(it)
+            }
         } catch (e: Exception) {
             // Not fatal: worst case some already-shown items are forwarded once more.
         }
