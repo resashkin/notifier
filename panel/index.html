@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notifier Panel</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #16181d; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #2563eb; --accent-text: #ffffff; --ok: #16a34a; --warn: #d97706; --bad: #dc2626;
+    --chip: #f1f5f9; --code: #0f172a; --code-text: #e2e8f0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d0f13; --card: #161a21; --text: #e6e8ec; --muted: #9aa3b2; --line: #262c36;
+      --accent: #3b82f6; --chip: #1e242e; --code: #0a0c10; --code-text: #cbd5e1;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+           padding: 16px 24px; border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; z-index: 2; }
+  h1 { font-size: 18px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--chip); font-size: 12px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+  main { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; padding: 16px 24px; max-width: 1400px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } header { padding: 12px 16px; } }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .spread { justify-content: space-between; }
+  button { font: inherit; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--chip); color: var(--text); cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button.danger { color: var(--bad); }
+  button:disabled { opacity: .5; cursor: default; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text], input[type=password], input[type=number], textarea {
+    width: 100%; font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  textarea { min-height: 84px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .check { display: flex; align-items: center; gap: 8px; margin: 8px 0; color: var(--text); font-size: 14px; }
+  .check input { width: 16px; height: 16px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  .with-btn { display: flex; gap: 6px; } .with-btn input { flex: 1; }
+  pre { background: var(--code); color: var(--code-text); border-radius: 8px; padding: 10px; margin: 12px 0 0; font-size: 12px;
+        max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .notifs { display: flex; flex-direction: column; }
+  .notif { padding: 10px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; }
+  .notif:first-child { border-top: 0; }
+  .notif .title { font-weight: 600; overflow-wrap: anywhere; }
+  .notif .text { color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; grid-column: 1 / -1; }
+  .notif .meta { color: var(--muted); font-size: 12px; grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+  .notif .time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .tag { padding: 0 6px; border-radius: 4px; background: var(--chip); }
+  .tag.sent { color: var(--ok); } .tag.failed { color: var(--bad); }
+  .empty { color: var(--muted); padding: 24px 0; text-align: center; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg);
+           padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100% - 32px); }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Notifier</h1>
+  <div class="pills" id="pills"></div>
+</header>
+
+<main>
+  <div class="col">
+    <section class="card">
+      <div class="row spread"><h2>Phone</h2><span class="hint" id="serial"></span></div>
+      <div class="row">
+        <button class="primary" data-action="scrcpy">Open screen (scrcpy)</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row spread">
+        <h2>Last notifications</h2>
+        <div class="row">
+          <input type="text" id="filter" placeholder="Filter…" style="width:160px">
+          <button data-tweak="test_notification">Send test</button>
+          <button id="clear">Clear</button>
+        </div>
+      </div>
+      <div class="notifs" id="notifs"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card">
+      <h2>Device</h2>
+      <label for="device">Read notifications from</label>
+      <div class="with-btn">
+        <select id="device" style="flex:1;font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)"></select>
+        <button id="refresh-devices" type="button">Refresh</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="to-wifi" type="button">Switch USB phone to Wi-Fi</button>
+      </div>
+      <div class="hint">Android 10 and older: plug the phone in by USB, select it, then press this to keep working without the cable.</div>
+      <details style="margin-top:12px">
+        <summary style="cursor:pointer">Add an Android 11+ phone over Wi-Fi (pairing code)</summary>
+        <ol class="hint" style="padding-left:18px;margin:8px 0">
+          <li>Phone and Mac on the same Wi-Fi.</li>
+          <li>Phone: Settings → About phone → tap <i>Build number</i> 7× to enable Developer options.</li>
+          <li>Developer options → <i>Wireless debugging</i> → on → <i>Pair device with pairing code</i>.</li>
+          <li>Enter the IP:port and 6-digit code shown there, press Pair.</li>
+          <li>Back on the Wireless debugging screen, enter the IP:port shown under <i>IP address &amp; Port</i>, press Connect.</li>
+        </ol>
+        <label for="pair_addr">Pairing IP:port and code</label>
+        <div class="with-btn">
+          <input type="text" id="pair_addr" placeholder="192.168.1.20:37099">
+          <input type="text" id="pair_code" placeholder="123456" style="max-width:96px">
+          <button id="pair" type="button">Pair</button>
+        </div>
+        <label for="connect_addr">Connect IP:port</label>
+        <div class="with-btn">
+          <input type="text" id="connect_addr" placeholder="192.168.1.20:41234">
+          <button id="connect" type="button" class="primary">Connect</button>
+        </div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>Telegram</h2>
+      <label for="bot_token">Bot token (from @BotFather)</label>
+      <div class="with-btn">
+        <input type="password" id="bot_token" data-setting placeholder="123456:ABC-DEF…" autocomplete="off">
+        <button id="toggle-token" type="button">Show</button>
+      </div>
+      <label for="chat_id">Chat ID</label>
+      <div class="with-btn">
+        <input type="text" id="chat_id" data-setting placeholder="e.g. 123456789">
+        <button id="detect" type="button">Detect</button>
+      </div>
+      <div class="hint">Send /start to your bot, then press Detect.</div>
+      <div class="check"><input type="checkbox" id="forwarding_enabled" data-setting><label for="forwarding_enabled" style="margin:0;color:inherit;font-size:14px">Forward notifications to Telegram</label></div>
+      <div class="row"><button class="primary" data-save>Save</button><button id="tg-test">Test bot</button></div>
+    </section>
+
+    <section class="card">
+      <h2>Forwarding rules</h2>
+      <label for="ignore_packages">Ignored apps (one package per line)</label>
+      <textarea id="ignore_packages" data-setting></textarea>
+      <div class="check"><input type="checkbox" id="skip_ongoing" data-setting><label for="skip_ongoing" style="margin:0;color:inherit;font-size:14px">Skip ongoing / foreground-service notifications</label></div>
+      <div class="check"><input type="checkbox" id="skip_group_summary" data-setting><label for="skip_group_summary" style="margin:0;color:inherit;font-size:14px">Skip group summaries</label></div>
+      <div class="check"><input type="checkbox" id="show_package" data-setting><label for="show_package" style="margin:0;color:inherit;font-size:14px">Show package name in message</label></div>
+      <div class="check"><input type="checkbox" id="silent_messages" data-setting><label for="silent_messages" style="margin:0;color:inherit;font-size:14px">Send silently (no Telegram sound)</label></div>
+      <label for="poll_interval">Poll interval (seconds)</label>
+      <input type="number" id="poll_interval" data-setting min="1" max="60">
+      <div class="row" style="margin-top:12px"><button class="primary" data-save>Save</button></div>
+    </section>
+
+    <section class="card">
+      <h2>Screen (scrcpy)</h2>
+      <div class="grid2">
+        <div><label for="scrcpy_max_size">Max size (px, 0 = full)</label><input type="number" id="scrcpy_max_size" data-setting min="0" step="80"></div>
+      </div>
+      <div class="check"><input type="checkbox" id="scrcpy_screen_off" data-setting><label for="scrcpy_screen_off" style="margin:0;color:inherit;font-size:14px">Turn phone screen off while mirroring</label></div>
+      <div class="check"><input type="checkbox" id="scrcpy_stay_awake" data-setting><label for="scrcpy_stay_awake" style="margin:0;color:inherit;font-size:14px">Keep device awake</label></div>
+      <div class="check"><input type="checkbox" id="scrcpy_on_top" data-setting><label for="scrcpy_on_top" style="margin:0;color:inherit;font-size:14px">Window always on top</label></div>
+      <div class="check"><input type="checkbox" id="scrcpy_audio" data-setting><label for="scrcpy_audio" style="margin:0;color:inherit;font-size:14px">Forward audio</label></div>
+      <div class="row" style="margin-top:12px"><button class="primary" data-save>Save</button></div>
+    </section>
+
+    <section class="card">
+      <h2>Phone tweaks</h2>
+      <div class="row">
+        <button data-tweak="animations_off">Animations off</button>
+        <button data-tweak="animations_on">Animations on</button>
+        <button data-tweak="dark_mode">Dark mode</button>
+        <button data-tweak="light_mode">Light mode</button>
+        <button data-tweak="notif_history">Notification history on</button>
+      </div>
+      <pre id="tweak-out" hidden></pre>
+    </section>
+  </div>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = (path, body) => fetch(path, body === undefined ? {} : {
+  method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+}).then(r => r.json());
+
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ---- status ----
+function pill(label, state) {
+  const cls = state === true ? 'ok' : state === false ? 'bad' : 'warn';
+  return `<span class="pill"><span class="dot ${cls}"></span>${label}</span>`;
+}
+async function refreshStatus() {
+  try {
+    const s = await api('/api/status');
+    $('#pills').innerHTML = [
+      pill(s.adb ? (s.model || 'Phone') + ' connected' : 'No phone connected', s.adb),
+      pill('Reading notifications', s.adb && !s.poller.error),
+      pill('scrcpy', s.scrcpy ? true : null),
+      pill('Forwarding', s.forwarding ? true : null),
+    ].join('');
+    $('#serial').textContent = s.serial || '';
+  } catch { $('#pills').innerHTML = pill('panel offline', false); }
+}
+
+// ---- actions ----
+document.querySelectorAll('[data-action]').forEach(b => b.onclick = async () => {
+  const r = await api('/api/action', {name: b.dataset.action});
+  toast(r.message); setTimeout(refreshStatus, 1500);
+});
+
+// ---- tweaks ----
+document.querySelectorAll('[data-tweak]').forEach(b => b.onclick = async () => {
+  b.disabled = true;
+  const r = await api('/api/tweak', {name: b.dataset.tweak});
+  b.disabled = false;
+  toast(r.ok ? b.textContent + ': done' : 'Failed');
+  if (!r.ok) { const o = $('#tweak-out'); o.hidden = false; o.textContent = r.message; }
+  if (b.dataset.tweak === 'test_notification') setTimeout(refreshNotifs, 3000);
+});
+
+// ---- settings ----
+const fields = [...document.querySelectorAll('[data-setting]')];
+async function loadSettings() {
+  const s = await api('/api/settings');
+  fields.forEach(f => f.type === 'checkbox' ? f.checked = !!s[f.id] : f.value = s[f.id] ?? '');
+}
+function collect() {
+  return Object.fromEntries(fields.map(f => [f.id, f.type === 'checkbox' ? f.checked : f.type === 'number' ? Number(f.value) : f.value]));
+}
+async function save() { const r = await api('/api/settings', collect()); toast(r.message); refreshStatus(); }
+document.querySelectorAll('[data-save]').forEach(b => b.onclick = save);
+$('#toggle-token').onclick = () => {
+  const i = $('#bot_token'); const show = i.type === 'password';
+  i.type = show ? 'text' : 'password'; $('#toggle-token').textContent = show ? 'Hide' : 'Show';
+};
+$('#tg-test').onclick = async () => { await save(); const r = await api('/api/telegram/test', {}); toast(r.message); };
+$('#detect').onclick = async () => {
+  await save(); const r = await api('/api/telegram/detect_chat', {});
+  toast(r.message); if (r.chat_id) $('#chat_id').value = r.chat_id;
+};
+
+// ---- device ----
+async function loadDevices() {
+  const r = await api('/api/devices');
+  const opts = [{serial: '', label: 'Auto (first connected device)'}];
+  r.devices.forEach(d => opts.push({serial: d.serial, label: `${d.model || 'device'} — ${d.serial}${d.state === 'device' ? '' : ' (' + d.state + ')'}`}));
+  if (r.selected && !opts.some(o => o.serial === r.selected)) opts.push({serial: r.selected, label: r.selected + ' (not connected)'});
+  $('#device').innerHTML = opts.map(o => `<option value="${esc(o.serial)}">${esc(o.label)}</option>`).join('');
+  $('#device').value = r.selected;
+}
+$('#device').onchange = async () => { const r = await api('/api/device/select', {serial: $('#device').value}); toast(r.message); refreshStatus(); };
+$('#refresh-devices').onclick = loadDevices;
+$('#to-wifi').onclick = async () => {
+  const serial = $('#device').value;
+  if (!serial || serial.includes(':')) return toast('Select a USB-connected phone first');
+  toast('Switching to Wi-Fi…');
+  const r = await api('/api/device/wifi', {serial});
+  toast(r.message); if (r.ok) { await loadDevices(); refreshStatus(); }
+};
+$('#pair').onclick = async () => {
+  const r = await api('/api/device/pair', {address: $('#pair_addr').value, code: $('#pair_code').value});
+  toast(r.ok ? 'Paired — now Connect' : r.message);
+  if (r.ok && !$('#connect_addr').value) $('#connect_addr').value = $('#pair_addr').value.split(':')[0] + ':';
+};
+$('#connect').onclick = async () => {
+  const r = await api('/api/device/connect', {address: $('#connect_addr').value});
+  toast(r.message); if (r.ok) { await loadDevices(); refreshStatus(); }
+};
+
+// ---- notifications ----
+let notifs = [];
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function renderNotifs() {
+  const q = $('#filter').value.toLowerCase();
+  const list = notifs.filter(n => !q || [n.pkg, n.title, n.text].join(' ').toLowerCase().includes(q));
+  $('#notifs').innerHTML = list.length ? list.map(n => {
+    const cls = n.status === 'sent' ? 'sent' : n.status.startsWith('failed') ? 'failed' : '';
+    return `<div class="notif">
+      <div class="title">${esc(n.title || n.pkg)}</div>
+      <div class="time">${new Date(n.ts * 1000).toLocaleTimeString()}</div>
+      ${n.text ? `<div class="text">${esc(n.text)}</div>` : ''}
+      <div class="meta"><span>${esc(n.pkg)}</span><span class="tag ${cls}">${esc(n.status)}</span></div>
+    </div>`;
+  }).join('') : '<div class="empty">No notifications yet. Press "Send test" to try the pipeline.</div>';
+}
+async function refreshNotifs() { notifs = await api('/api/notifications'); renderNotifs(); }
+$('#filter').oninput = renderNotifs;
+$('#clear').onclick = async () => { await api('/api/notifications/clear', {}); refreshNotifs(); };
+
+loadSettings(); loadDevices(); refreshStatus(); refreshNotifs();
+setInterval(refreshStatus, 5000);
+setInterval(refreshNotifs, 3000);
+</script>
+</body>
+</html>

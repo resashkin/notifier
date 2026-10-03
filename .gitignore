@@ -1,0 +1,10 @@
+# Mac panel: holds the bot token and notification history
+panel/data/
+__pycache__/
+
+# Local-only experiments
+redroid/
+
+.DS_Store
+.idea/
+*.iml
