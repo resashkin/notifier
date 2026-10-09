@@ -1,10 +1,12 @@
 package dev.notifier
 
+import android.Manifest
 import android.app.Activity
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -67,6 +69,9 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.battery).setOnClickListener {
             startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
         }
+        findViewById<Button>(R.id.health_permissions).setOnClickListener {
+            requestPermissions(missingHealthPermissions().toTypedArray(), REQUEST_HEALTH)
+        }
         findViewById<Button>(R.id.save).setOnClickListener { save(); toast("Saved") }
         findViewById<Button>(R.id.test).setOnClickListener { save(); sendTest() }
         findViewById<Button>(R.id.detect).setOnClickListener { save(); detectChat() }
@@ -79,7 +84,20 @@ class MainActivity : Activity() {
         prefs.raw.registerOnSharedPreferenceChangeListener(prefsListener)
         ignored.setText(prefs.ignoredPackages)  // may have changed from the bot while we were away
         refreshStatus()
+        refreshHealth()
         showRecent()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // Android 11+ grants background location only in a separate step (opens its settings page).
+        val needsBackground = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            granted(Manifest.permission.ACCESS_FINE_LOCATION) && !granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        if (requestCode == REQUEST_HEALTH && needsBackground) {
+            toast("Choose “Allow all the time” so the Wi-Fi name is visible from Telegram")
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQUEST_HEALTH_BACKGROUND)
+        }
+        refreshHealth()
     }
 
     override fun onPause() {
@@ -122,6 +140,27 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.battery).visibility = if (battery) Button.GONE else Button.VISIBLE
     }
 
+    private fun refreshHealth() {
+        findViewById<TextView>(R.id.health).text = Health.lines(Health.snapshot(this)).joinToString("\n")
+        findViewById<Button>(R.id.health_permissions).visibility =
+            if (missingHealthPermissions().isEmpty()) Button.GONE else Button.VISIBLE
+    }
+
+    /** Optional: Wi-Fi name needs location (all the time, since /status is answered in the background),
+     *  mobile network type needs phone state. */
+    private fun missingHealthPermissions(): List<String> = listOfNotNull(
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        // Android 10 asks for background location in the same dialog; 11+ needs a second step.
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION.takeIf { Build.VERSION.SDK_INT == Build.VERSION_CODES.Q },
+        Manifest.permission.READ_PHONE_STATE,
+    ).filterNot(::granted) + listOfNotNull(
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION.takeIf {
+            Build.VERSION.SDK_INT > Build.VERSION_CODES.Q && !granted(it) && granted(Manifest.permission.ACCESS_FINE_LOCATION)
+        },
+    )
+
+    private fun granted(permission: String) = checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+
     private fun showRecent() {
         val fmt = DateFormat.getTimeFormat(this)
         val entries = prefs.recent()
@@ -155,4 +194,9 @@ class MainActivity : Activity() {
     }
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+
+    companion object {
+        private const val REQUEST_HEALTH = 1
+        private const val REQUEST_HEALTH_BACKGROUND = 2
+    }
 }

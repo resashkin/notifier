@@ -56,10 +56,20 @@ USB debugging is not needed afterwards — you can turn developer options off ag
 ## Using it from Telegram
 
 - Under each forwarded message: **🔕 Mute <app>** (one tap to undo) and **⏸ Pause 1h**.
-- `/pause [minutes]`, `/resume`, `/muted`, `/status`.
+- `/pause [minutes]`, `/resume`, `/muted`, `/status` (includes phone health).
 - `/settings` → **⚙️ Settings** button → Mini App with per-app switches, pause and rules.
 
 Only the chat ID configured on the phone can control it.
+
+## Phone health
+
+`/status` and the Mini App's **Phone** section show battery level, temperature, voltage and health, charging state
+(AC/USB/wireless, current, time to full), Wi-Fi (signal, band, link speed, IP), mobile network (operator, signal, data,
+roaming), internet reachability and uptime. Read on demand — nothing runs in the background.
+
+Two fields need optional permissions, requested by **Show Wi-Fi name & mobile network type** in the app:
+the Wi-Fi name (location, *Allow all the time*, since `/status` is answered in the background) and the mobile network
+type (phone state). Everything else works without them.
 
 ## How the Mini App works without a server
 

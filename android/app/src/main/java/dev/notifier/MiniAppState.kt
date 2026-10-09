@@ -38,9 +38,10 @@ object MiniAppState {
         // Muted apps are always listed, so they can be unmuted even if they've gone quiet.
         (muted - seen.keys().asSequence().toSet()).forEach { apps += app(it, appLabel(context, it), true, 0, 0) }
         apps.sortByDescending { it.optLong("t") }
+        val health = Health.snapshot(context)
 
         while (true) {
-            val encoded = gzipBase64(state(prefs, apps).toString())
+            val encoded = gzipBase64(state(prefs, apps, health).toString())
             if (encoded.length <= MAX_ENCODED) return encoded
             // Too long: drop the least recently seen unmuted app.
             val drop = apps.indexOfLast { it.optInt("m") == 0 }
@@ -52,7 +53,7 @@ object MiniAppState {
     private fun app(pkg: String, label: String, muted: Boolean, count: Int, lastSeen: Long) = JSONObject()
         .put("p", pkg).put("l", label).put("m", if (muted) 1 else 0).put("n", count).put("t", lastSeen)
 
-    private fun state(prefs: Prefs, apps: List<JSONObject>) = JSONObject()
+    private fun state(prefs: Prefs, apps: List<JSONObject>, health: JSONObject) = JSONObject()
         .put("v", 1)
         .put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
         .put("ts", System.currentTimeMillis())
@@ -62,6 +63,7 @@ object MiniAppState {
         .put("show_app", prefs.showApp)
         .put("silent", prefs.silent)
         .put("apps", JSONArray(apps))
+        .put("health", health)
 
     private fun gzipBase64(text: String): String {
         val bytes = ByteArrayOutputStream()

@@ -217,6 +217,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             if (_demo) const _Note('Demo data - open this from the bot with /settings to manage your phone.'),
             _statusHeader(context, state),
+            if (state.health case final health?) _HealthSection(health),
             _Section(title: 'Forwarding', children: [_pauseChips(context, state)]),
             _Section(
               title: 'Apps',
@@ -358,6 +359,120 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (d.inHours < 1) return '${d.inMinutes} min ago';
     if (d.inDays < 1) return '${d.inHours} h ago';
     return '${d.inDays} d ago';
+  }
+}
+
+/// Battery, Wi-Fi, mobile network and internet as reported by the phone when the link was made.
+class _HealthSection extends StatelessWidget {
+  const _HealthSection(this.health);
+
+  final PhoneHealth health;
+
+  /// Values worth a warning color.
+  static const _hotC = 45.0;
+  static const _lowBattery = 20;
+
+  @override
+  Widget build(BuildContext context) {
+    final b = health.battery;
+    final w = health.wifi;
+    final m = health.mobile;
+    final lowBattery = (b.level ?? 100) <= _lowBattery && !b.isCharging;
+    final hot = (b.tempC ?? 0) >= _hotC;
+
+    return _Section(
+      title: 'Phone',
+      children: [
+        _tile(
+          context,
+          icon: b.isCharging
+              ? Icons.battery_charging_full
+              : lowBattery
+              ? Icons.battery_alert
+              : Icons.battery_std,
+          warn: lowBattery || hot || (b.health != null && b.health != 'good'),
+          title: [
+            if (b.level != null) '${b.level}%',
+            if (b.status != null) _capitalize(b.status!) + (b.plugged != null ? ' (${b.plugged})' : ''),
+          ].join(' · '),
+          subtitle: [
+            if (b.tempC != null) '${b.tempC!.toStringAsFixed(1)} °C${hot ? ' - hot!' : ''}',
+            if (b.voltage != null) '${b.voltage!.toStringAsFixed(2)} V',
+            if (b.currentMa != null) '${b.currentMa} mA',
+            if (b.fullIn != null) 'full in ${_duration(b.fullIn!)}',
+            if (b.health != null) 'health ${b.health}',
+          ].join(' · '),
+        ),
+        _tile(
+          context,
+          icon: w.connected ? Icons.wifi : Icons.wifi_off,
+          warn: w.enabled && !w.connected,
+          title: !w.enabled
+              ? 'Wi-Fi off'
+              : !w.connected
+              ? 'Wi-Fi not connected'
+              : (w.ssid ?? 'Wi-Fi connected'),
+          subtitle: !w.connected
+              ? null
+              : [
+                  if (w.rssi != null) '${w.rssi} dBm (${w.level ?? '?'}/4)',
+                  ?w.band,
+                  if (w.mbps != null) '${w.mbps} Mbps',
+                  ?w.ip,
+                  if (w.ssid == null) 'name hidden: allow location in the Android app',
+                ].join(' · '),
+        ),
+        _tile(
+          context,
+          icon: m.sim == 'ready' ? Icons.signal_cellular_alt : Icons.signal_cellular_off,
+          warn: m.sim != null && m.sim != 'ready' && m.sim != 'no SIM',
+          title: m.sim == 'ready' ? (m.operator ?? 'Mobile network') : 'Mobile: ${m.sim ?? 'unknown'}',
+          subtitle: m.sim != 'ready'
+              ? null
+              : [
+                  ?m.type,
+                  if (m.level != null) 'signal ${m.level}/4${m.dbm != null ? ' (${m.dbm} dBm)' : ''}',
+                  if (m.dataOn != null) m.dataOn! ? 'data on' : 'data off',
+                  if (m.roaming) 'roaming',
+                ].join(' · '),
+        ),
+        _tile(
+          context,
+          icon: health.internetOk ? Icons.public : Icons.public_off,
+          warn: !health.internetOk,
+          title: health.internetVia == 'none'
+              ? 'Offline'
+              : health.internetOk
+              ? 'Online via ${health.internetVia}'
+              : 'No internet access via ${health.internetVia}',
+          subtitle: 'Up ${_duration(health.uptime)}',
+        ),
+      ],
+    );
+  }
+
+  Widget _tile(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    bool warn = false,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = warn ? scheme.error : null;
+    return ListTile(
+      leading: Icon(icon, color: color ?? scheme.primary),
+      title: Text(title, style: TextStyle(color: color)),
+      subtitle: subtitle == null || subtitle.isEmpty ? null : Text(subtitle),
+    );
+  }
+
+  static String _capitalize(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
+  static String _duration(Duration d) {
+    if (d.inMinutes < 60) return '${d.inMinutes} min';
+    if (d.inHours < 24) return '${d.inHours} h ${d.inMinutes % 60} min';
+    return '${d.inDays} d ${d.inHours % 24} h';
   }
 }
 

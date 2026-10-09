@@ -152,7 +152,8 @@ class BotController(private val context: Context) {
         append(if (prefs.isPaused()) "⏸ Paused until <b>${time(prefs.pausedUntil)}</b>" else "▶️ Forwarding is on")
         val muted = prefs.mutedApps()
         append("\n🔕 Muted apps: ").append(if (muted.isEmpty()) "none" else muted.size.toString())
-        append("\n📱 ").append(escapeHtml("${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"))
+        append("\n\n<b>").append(escapeHtml("${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")).append("</b>\n")
+        append(Health.lines(Health.snapshot(context)).joinToString("\n") { escapeHtml(it) })
     }
 
     private fun reply(token: String, chat: String, html: String, markup: JSONObject? = null) =
@@ -165,7 +166,7 @@ class BotController(private val context: Context) {
             "pause" to "Pause forwarding (/pause 30 = 30 min, default 1 hour)",
             "resume" to "Resume forwarding",
             "muted" to "List muted apps",
-            "status" to "Show forwarding status",
+            "status" to "Forwarding state and phone health (battery, Wi-Fi, mobile)",
             "settings" to "Open the settings Mini App",
         )
 
@@ -174,7 +175,7 @@ class BotController(private val context: Context) {
             "/pause [minutes] — pause forwarding\n" +
             "/resume — resume\n" +
             "/muted — muted apps\n" +
-            "/status — current state\n" +
+            "/status — forwarding state and phone health\n" +
             "/settings — open settings (Mini App)"
     }
 }

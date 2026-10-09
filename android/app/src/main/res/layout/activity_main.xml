@@ -30,6 +30,29 @@
             android:layout_height="wrap_content"
             android:text="Allow running in background" />
 
+        <!-- Phone health -->
+        <TextView
+            style="@android:style/TextAppearance.DeviceDefault.Medium"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="20dp"
+            android:text="Phone health" />
+
+        <TextView
+            android:id="@+id/health"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:lineSpacingExtra="2dp"
+            android:paddingTop="4dp"
+            android:textIsSelectable="true"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/health_permissions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Show Wi-Fi name &amp; mobile network type" />
+
         <!-- Telegram -->
         <TextView
             style="@android:style/TextAppearance.DeviceDefault.Medium"
