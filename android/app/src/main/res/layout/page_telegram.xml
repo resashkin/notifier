@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Telegram tab: bot Start/Stop and connection settings. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/page_telegram"
+    style="@style/Page">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/bot_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/bot_toggle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            style="@style/Hint"
+            android:text="The bot answers /status, /pause, /settings and the Mute buttons. Notifications are forwarded even while it's stopped." />
+
+        <TextView
+            style="@style/SectionTitle"
+            android:text="Bot" />
+
+        <EditText
+            android:id="@+id/bot_token"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Bot token (from @BotFather)"
+            android:importantForAutofill="no"
+            android:inputType="textPassword" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/chat_id"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Chat ID"
+                android:importantForAutofill="no"
+                android:inputType="numberSigned" />
+
+            <Button
+                android:id="@+id/detect"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Detect" />
+        </LinearLayout>
+
+        <TextView
+            style="@style/Hint"
+            android:text="Send /start to your bot, then tap Detect.\nIn the bot: tap 🔕 Mute under a message to stop that app, or use /pause, /resume, /muted, /status." />
+
+        <EditText
+            android:id="@+id/mini_app_url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Settings Mini App address (https://…)"
+            android:importantForAutofill="no"
+            android:inputType="textUri" />
+
+        <Button
+            android:id="@+id/test"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Save &amp; send test" />
+    </LinearLayout>
+</ScrollView>

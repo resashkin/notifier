@@ -91,12 +91,26 @@ object Telegram {
             conn.outputStream.use { it.write(body.toByteArray()) }
             val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
             val json = JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
-            if (!json.optBoolean("ok")) throw IOException(json.optString("description", "HTTP ${conn.responseCode}"))
+            if (!json.optBoolean("ok")) throw TelegramException(
+                json.optInt("error_code", conn.responseCode),
+                json.optString("description", "HTTP ${conn.responseCode}"),
+                json.optJSONObject("parameters")?.optInt("retry_after") ?: 0,
+            )
             return json
         } finally {
             conn.disconnect()
         }
     }
+}
+
+/** An error answered by Telegram itself (as opposed to no connection). */
+class TelegramException(val code: Int, description: String, val retryAfterSec: Int) : IOException(description) {
+    /** Telegram refuses this particular message (too long, bad markup): retrying it won't help.
+     *  "Chat not found" is a 400 too, but that's the setup, not the message. */
+    val rejected get() = code == 400 && "chat not found" !in message.orEmpty().lowercase()
+
+    /** Wrong token, bot blocked or chat gone: nothing gets through until the setup is fixed. */
+    val setupProblem get() = code == 401 || code == 403 || (code == 400 && !rejected)
 }
 
 /** Inline keyboards. Callback data: "m:<pkg>" mute, "u:<pkg>" unmute, "l:<pkg>" unmute from /muted list,

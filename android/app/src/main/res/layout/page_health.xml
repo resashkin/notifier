@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Health tab: forwarding status, permissions, internet, phone health, outages. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/page_health"
+    style="@style/Page">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/internet_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/banner_background"
+            android:padding="12dp"
+            android:textSize="15sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/grant_access"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Grant notification access" />
+
+        <Button
+            android:id="@+id/battery"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Allow running in background" />
+
+        <Button
+            android:id="@+id/alert_permission"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Allow “No internet” alerts" />
+
+        <TextView
+            style="@style/SectionTitle"
+            android:text="Phone health" />
+
+        <TextView
+            android:id="@+id/health"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:lineSpacingExtra="2dp"
+            android:paddingTop="4dp"
+            android:textIsSelectable="true"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/health_permissions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Show Wi-Fi name &amp; mobile network type" />
+
+        <TextView
+            style="@style/SectionTitle"
+            android:text="Internet outages" />
+
+        <TextView
+            android:id="@+id/outages"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:lineSpacingExtra="2dp"
+            android:paddingTop="4dp"
+            android:textIsSelectable="true"
+            android:textSize="14sp" />
+    </LinearLayout>
+</ScrollView>

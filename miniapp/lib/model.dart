@@ -27,25 +27,51 @@ class AppInfo {
 }
 
 class Rules {
-  const Rules({required this.skipOngoing, required this.skipGroupSummary, required this.showApp, required this.silent});
+  const Rules({
+    required this.skipOngoing,
+    required this.skipGroupSummary,
+    required this.showApp,
+    required this.silent,
+    this.lowBattery = true,
+    this.lowBatteryLevel = 20,
+  });
+
+  /// Range of the low-battery level, same as the Android app (`MiniAppState.LOW_BATTERY_MIN/MAX`).
+  static const lowBatteryMin = 5;
+  static const lowBatteryMax = 50;
 
   final bool skipOngoing;
   final bool skipGroupSummary;
   final bool showApp;
   final bool silent;
 
-  Rules copyWith({bool? skipOngoing, bool? skipGroupSummary, bool? showApp, bool? silent}) => Rules(
+  /// Warn in the chat when the battery drops to [lowBatteryLevel] %.
+  final bool lowBattery;
+  final int lowBatteryLevel;
+
+  Rules copyWith({
+    bool? skipOngoing,
+    bool? skipGroupSummary,
+    bool? showApp,
+    bool? silent,
+    bool? lowBattery,
+    int? lowBatteryLevel,
+  }) => Rules(
     skipOngoing: skipOngoing ?? this.skipOngoing,
     skipGroupSummary: skipGroupSummary ?? this.skipGroupSummary,
     showApp: showApp ?? this.showApp,
     silent: silent ?? this.silent,
+    lowBattery: lowBattery ?? this.lowBattery,
+    lowBatteryLevel: lowBatteryLevel ?? this.lowBatteryLevel,
   );
 
-  Map<String, bool> toJson() => {
+  Map<String, Object> toJson() => {
     'skip_ongoing': skipOngoing,
     'skip_group_summary': skipGroupSummary,
     'show_app': showApp,
     'silent': silent,
+    'low_battery': lowBattery,
+    'low_battery_level': lowBatteryLevel,
   };
 }
 
@@ -91,6 +117,7 @@ class BatteryInfo {
     this.health,
     this.currentMa,
     this.fullIn,
+    this.left,
   });
 
   factory BatteryInfo.fromJson(Map<String, dynamic> j) => BatteryInfo(
@@ -102,6 +129,7 @@ class BatteryInfo {
     health: j['health'] as String?,
     currentMa: (j['current_ma'] as num?)?.toInt(),
     fullIn: j['full_in_min'] == null ? null : Duration(minutes: (j['full_in_min'] as num).toInt()),
+    left: j['left_min'] == null ? null : Duration(minutes: (j['left_min'] as num).toInt()),
   );
 
   final int? level;
@@ -112,6 +140,9 @@ class BatteryInfo {
   final String? health;
   final int? currentMa;
   final Duration? fullIn;
+
+  /// Approximate time on battery until empty (phone's estimate, only while not charging).
+  final Duration? left;
 
   bool get isCharging => status == 'charging' || status == 'full';
 }
@@ -196,6 +227,8 @@ class PhoneState {
         skipGroupSummary: json['skip_group_summary'] as bool? ?? true,
         showApp: json['show_app'] as bool? ?? true,
         silent: json['silent'] as bool? ?? false,
+        lowBattery: json['low_battery'] as bool? ?? true,
+        lowBatteryLevel: (json['low_battery_level'] as num?)?.toInt() ?? 20,
       ),
       apps: [for (final a in (json['apps'] as List? ?? const [])) AppInfo.fromJson(a as Map<String, dynamic>)]
         ..sort((a, b) => b.lastSeen.compareTo(a.lastSeen)),
@@ -288,7 +321,7 @@ class Changes {
 
   final List<String> mute;
   final List<String> unmute;
-  final Map<String, bool> rules;
+  final Map<String, Object> rules;
   final int? pauseMinutes;
   final bool resume;
 

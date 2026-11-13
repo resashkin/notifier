@@ -15,7 +15,7 @@ import kotlin.math.abs
 
 /**
  * Snapshot of the phone's health: battery, charging, Wi-Fi, mobile network, internet, uptime.
- * Read on demand (/status, /settings) - nothing runs in the background.
+ * Read on demand (/status, /settings); only the time left on battery uses history ([BatteryEstimate]).
  *
  * Optional permissions: Wi-Fi name needs location ("Allow all the time" to read it from the background),
  * mobile network type needs READ_PHONE_STATE. Without them those fields are simply left out.
@@ -68,6 +68,7 @@ object Health {
         }
         val fullInMs = bm.computeChargeTimeRemaining()
         if (fullInMs > 0) o.put("full_in_min", fullInMs / 60_000)
+        BatteryEstimate.minutesLeft(context)?.let { o.put("left_min", it) }
         return o
     }
 
@@ -127,6 +128,12 @@ object Health {
         return o
     }
 
+    /** True if the phone has working (validated) internet that this app may use right now. */
+    fun online(context: Context): Boolean {
+        val cm = context.getSystemService(ConnectivityManager::class.java)
+        return cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+    }
+
     private fun internet(context: Context): JSONObject {
         val cm = context.getSystemService(ConnectivityManager::class.java)
         val caps = cm.getNetworkCapabilities(cm.activeNetwork)
@@ -160,7 +167,8 @@ object Health {
 
         h.optJSONObject("battery")?.takeIf { it.has("level") }?.let { b ->
             val plugged = b.optString("plugged").takeIf { it != "none" }
-            lines += "🔋 ${b.getInt("level")}% · ${b.optString("status")}${plugged?.let { " ($it)" } ?: ""} · ${b.optDouble("temp_c")} °C"
+            val left = b.optLong("left_min").takeIf { it > 0 }?.let { " · ~${duration(it)} left" } ?: ""
+            lines += "🔋 ${b.getInt("level")}% · ${b.optString("status")}${plugged?.let { " ($it)" } ?: ""}$left · ${b.optDouble("temp_c")} °C"
             lines += listOfNotNull(
                 "%.2f V".format(b.optDouble("voltage_v")),
                 b.optInt("current_ma").takeIf { it > 0 }?.let { "$it mA" },
@@ -201,7 +209,7 @@ object Health {
         return lines
     }
 
-    private fun duration(minutes: Long): String = when {
+    fun duration(minutes: Long): String = when {
         minutes < 60 -> "$minutes min"
         minutes < 24 * 60 -> "${minutes / 60} h ${minutes % 60} min"
         else -> "${minutes / (24 * 60)} d ${minutes % (24 * 60) / 60} h"

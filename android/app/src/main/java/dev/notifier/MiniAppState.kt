@@ -20,6 +20,10 @@ object MiniAppState {
 
     /** Telegram doesn't document a URL limit for buttons; stay well within common 2 KB limits. */
     private const val MAX_ENCODED = 1800
+
+    /** Range of the low-battery level (same in the app's Settings tab and the Mini App). */
+    const val LOW_BATTERY_MIN = 5
+    const val LOW_BATTERY_MAX = 50
     private val PACKAGE = Regex("^[A-Za-z0-9_.]{1,200}$")
 
     /** Link for the ⚙️ Settings button, or null if the Mini App URL isn't configured. */
@@ -62,6 +66,8 @@ object MiniAppState {
         .put("skip_group_summary", prefs.skipGroupSummary)
         .put("show_app", prefs.showApp)
         .put("silent", prefs.silent)
+        .put("low_battery", prefs.lowBatteryOn)
+        .put("low_battery_level", prefs.lowBatteryLevel)
         .put("apps", JSONArray(apps))
         .put("health", health)
 
@@ -106,6 +112,14 @@ object MiniAppState {
             "silent" to { v: Boolean -> prefs.silent = v },
         ).filter { (key, set) -> changes.has(key).also { if (it) set(changes.getBoolean(key)) } }
         if (rules.isNotEmpty()) lines += "⚙️ Rules updated"
+        if (changes.has("low_battery")) prefs.lowBatteryOn = changes.getBoolean("low_battery")
+        if (changes.has("low_battery_level")) {
+            prefs.lowBatteryLevel = changes.getInt("low_battery_level").coerceIn(LOW_BATTERY_MIN, LOW_BATTERY_MAX)
+            prefs.lowBatteryWarned = false
+        }
+        if (changes.has("low_battery") || changes.has("low_battery_level")) {
+            lines += if (prefs.lowBatteryOn) "🪫 Low battery warning at ${prefs.lowBatteryLevel} %" else "🪫 Low battery warning off"
+        }
 
         return lines.joinToString("\n").ifEmpty { "Nothing changed." }
     }

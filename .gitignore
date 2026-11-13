@@ -8,3 +8,7 @@ redroid/
 .DS_Store
 .idea/
 *.iml
+
+# Signing keys (release updates): never commit
+*.jks
+*.keystore

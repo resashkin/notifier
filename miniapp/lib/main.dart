@@ -130,7 +130,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Changes _changes() {
     final state = _state!;
-    final rules = <String, bool>{};
+    final rules = <String, Object>{};
     final before = state.rules.toJson();
     _rules.toJson().forEach((k, v) {
       if (before[k] != v) rules[k] = v;
@@ -217,7 +217,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             if (_demo) const _Note('Demo data - open this from the bot with /settings to manage your phone.'),
             _statusHeader(context, state),
-            if (state.health case final health?) _HealthSection(health),
+            if (state.health case final health?) _HealthSection(health, lowBattery: state.rules.lowBatteryLevel),
             _Section(title: 'Forwarding', children: [_pauseChips(context, state)]),
             _Section(
               title: 'Apps',
@@ -272,6 +272,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: (v) => _update(() => _rules = _rules.copyWith(silent: v)),
                   title: const Text('Send silently'),
                   subtitle: const Text('No Telegram sound for forwarded messages'),
+                ),
+              ],
+            ),
+            _Section(
+              title: 'Battery',
+              footer: 'Sent once per discharge. An unplugged charger is always reported.',
+              children: [
+                SwitchListTile(
+                  value: _rules.lowBattery,
+                  onChanged: (v) => _update(() => _rules = _rules.copyWith(lowBattery: v)),
+                  title: const Text('Warn when the battery is low'),
+                  subtitle: Text('At ${_rules.lowBatteryLevel} % or below'),
+                ),
+                Slider(
+                  value: _rules.lowBatteryLevel.toDouble(),
+                  min: Rules.lowBatteryMin.toDouble(),
+                  max: Rules.lowBatteryMax.toDouble(),
+                  divisions: Rules.lowBatteryMax - Rules.lowBatteryMin,
+                  label: '${_rules.lowBatteryLevel} %',
+                  onChanged: _rules.lowBattery
+                      ? (v) => _update(() => _rules = _rules.copyWith(lowBatteryLevel: v.round()))
+                      : null,
                 ),
               ],
             ),
@@ -364,20 +386,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
 /// Battery, Wi-Fi, mobile network and internet as reported by the phone when the link was made.
 class _HealthSection extends StatelessWidget {
-  const _HealthSection(this.health);
+  const _HealthSection(this.health, {required this.lowBattery});
 
   final PhoneHealth health;
 
+  /// Battery level (%) highlighted as low: the warning level chosen in the Battery section.
+  final int lowBattery;
+
   /// Values worth a warning color.
   static const _hotC = 45.0;
-  static const _lowBattery = 20;
 
   @override
   Widget build(BuildContext context) {
     final b = health.battery;
     final w = health.wifi;
     final m = health.mobile;
-    final lowBattery = (b.level ?? 100) <= _lowBattery && !b.isCharging;
+    final lowBattery = (b.level ?? 100) <= this.lowBattery && !b.isCharging;
     final hot = (b.tempC ?? 0) >= _hotC;
 
     return _Section(
@@ -394,6 +418,7 @@ class _HealthSection extends StatelessWidget {
           title: [
             if (b.level != null) '${b.level}%',
             if (b.status != null) _capitalize(b.status!) + (b.plugged != null ? ' (${b.plugged})' : ''),
+            if (b.left != null) '~${_duration(b.left!)} left',
           ].join(' · '),
           subtitle: [
             if (b.tempC != null) '${b.tempC!.toStringAsFixed(1)} °C${hot ? ' - hot!' : ''}',

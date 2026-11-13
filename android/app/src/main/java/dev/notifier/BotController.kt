@@ -2,12 +2,14 @@ package dev.notifier
 
 import android.content.Context
 import android.text.format.DateFormat
+import android.text.format.DateUtils
 import org.json.JSONObject
 import java.util.Date
 
 /**
  * Lets the Telegram chat control forwarding: the Mute/Pause buttons under forwarded messages and
  * /pause, /resume, /muted, /status. Long-polls getUpdates; only the configured chat is obeyed.
+ * Started and stopped with the Start/Stop button in the app (Prefs.botEnabled); forwarding works either way.
  */
 class BotController(private val context: Context) {
 
@@ -19,30 +21,36 @@ class BotController(private val context: Context) {
 
     fun start() {
         val gen = ++generation
+        running = true
         Thread({ loop(gen) }, "bot-poll").apply { isDaemon = true }.start()
     }
 
     fun stop() {
         generation++
+        running = false
+        error = null
     }
 
     private fun loop(gen: Int) {
         var backoffMs = 5_000L
-        var initialized = false
+        var initializedFor = ""
         while (gen == generation) {
             val token = prefs.botToken
             val chat = prefs.chatId
-            if (!prefs.enabled || token.isBlank() || chat.isBlank()) {
+            if (token.isBlank() || chat.isBlank()) {
                 Thread.sleep(30_000)
                 continue
             }
             try {
-                if (!initialized) {
+                if (initializedFor != token) {
                     prefs.botDisplayName = Telegram.me(token).optString("first_name")
                     Telegram.setCommands(token, COMMANDS)
-                    initialized = true
+                    initializedFor = token
                 }
                 val updates = Telegram.getUpdates(token, prefs.updateOffset, 50)
+                if (gen != generation) return
+                lastPollAt = System.currentTimeMillis()
+                error = null
                 for (i in 0 until updates.length()) {
                     val update = updates.getJSONObject(i)
                     prefs.updateOffset = update.getLong("update_id") + 1
@@ -52,6 +60,9 @@ class BotController(private val context: Context) {
                 backoffMs = 5_000L
             } catch (e: Exception) {
                 // Offline, Doze, or another getUpdates call (409): wait and retry.
+                if (gen == generation) error =
+                    if (e is TelegramException && e.setupProblem) "Telegram refused: ${e.message} (check the token and chat ID)"
+                    else "Can't reach Telegram, retrying: ${e.message ?: e.javaClass.simpleName}"
                 Thread.sleep(backoffMs)
                 backoffMs = (backoffMs * 2).coerceAtMost(120_000L)
             }
@@ -84,6 +95,15 @@ class BotController(private val context: Context) {
                 else reply(token, chat, "🔕 Muted apps — tap to unmute:", Keyboards.mutedList(muted))
             }
             "/status" -> reply(token, chat, status())
+            "/update" -> {
+                reply(token, chat, "🔎 Checking ${escapeHtml(prefs.updateRepo)} for updates…")
+                val result = try {
+                    Updater.check(context, install = true)
+                } catch (e: Exception) {
+                    "Update failed: ${e.message}"
+                }
+                reply(token, chat, escapeHtml(result))
+            }
             "/settings" -> {
                 val link = MiniAppState.link(context, prefs)
                 if (link == null) reply(token, chat, "Set the Mini App address (https://…) in the Notifier app on the phone first.")
@@ -162,12 +182,24 @@ class BotController(private val context: Context) {
     private fun time(epochMs: Long): String = DateFormat.getTimeFormat(context).format(Date(epochMs))
 
     companion object {
+        /** For the app's Telegram tab: whether the poll loop runs, when Telegram last answered,
+         *  and the last error (null once it answers again). */
+        @Volatile
+        var running = false
+
+        @Volatile
+        var lastPollAt = 0L
+
+        @Volatile
+        var error: String? = null
+
         val COMMANDS = listOf(
             "pause" to "Pause forwarding (/pause 30 = 30 min, default 1 hour)",
             "resume" to "Resume forwarding",
             "muted" to "List muted apps",
             "status" to "Forwarding state and phone health (battery, Wi-Fi, mobile)",
             "settings" to "Open the settings Mini App",
+            "update" to "Update the Notifier app on the phone",
         )
 
         private const val HELP = "Notifier bot\n" +
@@ -176,7 +208,8 @@ class BotController(private val context: Context) {
             "/resume — resume\n" +
             "/muted — muted apps\n" +
             "/status — forwarding state and phone health\n" +
-            "/settings — open settings (Mini App)"
+            "/settings — open settings (Mini App)\n" +
+            "/update — update the app on the phone"
     }
 }
 
@@ -187,6 +220,15 @@ fun appLabel(context: Context, pkg: String): String = try {
 } catch (e: Exception) {
     pkg
 }
+
+/** Time of day for today, with the date for older moments. */
+fun clock(context: Context, epochMs: Long): String =
+    if (DateUtils.isToday(epochMs)) DateFormat.getTimeFormat(context).format(Date(epochMs))
+    else DateUtils.formatDateTime(
+        context, epochMs,
+        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or
+            DateUtils.FORMAT_ABBREV_MONTH or DateUtils.FORMAT_NO_YEAR,
+    )
 
 /** Telegram HTML mode only needs these three escaped. */
 fun escapeHtml(s: String): String = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

@@ -2,22 +2,40 @@ package dev.notifier
 
 import android.app.Notification
 import android.app.Person
+import android.content.SharedPreferences
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
 
 /**
  * Receives every notification posted on the phone (once the user grants notification access)
- * and forwards the useful ones to a Telegram chat, one message per new item.
+ * and forwards the useful ones to a Telegram chat, one message per new item (see [Outbox]).
+ * While connected it also runs the bot ([BotController]) and watches the internet ([NetworkWatch]).
  */
 class ForwarderService : NotificationListenerService() {
 
-    private val sender = Executors.newSingleThreadExecutor()
-
     private val bot by lazy { BotController(this) }
+
+    private val network by lazy { NetworkWatch(this) }
+
+    private val power by lazy { PowerWatch(this) }
+
+    /** Looks for a new release now and then; [Updater.autoCheck] does it at most once a day. */
+    private val handler = Handler(Looper.getMainLooper())
+    private val updateCheck = object : Runnable {
+        override fun run() {
+            Thread { Updater.autoCheck(this@ForwarderService) }.start()
+            handler.postDelayed(this, 6 * 60 * 60_000L)
+        }
+    }
+
+    /** Start/Stop on the app's Telegram tab. */
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == Prefs.KEY_BOT_ENABLED) startOrStopBot()
+    }
 
     /** pkg -> last time it was recorded in the seen-apps list (throttles chatty apps). */
     private val seenRecorded = ConcurrentHashMap<String, Long>()
@@ -28,13 +46,15 @@ class ForwarderService : NotificationListenerService() {
     /** Chat messages / inbox lines already forwarded. Kept after dismissal: apps re-post unread history. */
     private val seenItems = BoundedSet(1000)
 
-    /** Normalized bodies we sent recently. If the bot's chat lives on this phone, its own
-     *  Telegram notifications would otherwise be forwarded again, nesting forever. */
-    private val ourMessages = BoundedSet(100)
-
     override fun onListenerConnected() {
         connected = true
-        bot.start()
+        Prefs(this).raw.registerOnSharedPreferenceChangeListener(prefsListener)
+        startOrStopBot()
+        network.start()
+        power.start()
+        Outbox.flush(this)  // anything left in the queue from before a restart
+        handler.removeCallbacks(updateCheck)
+        handler.postDelayed(updateCheck, 60_000)  // give the network a moment after boot
         // Our memory is RAM-only: after a reboot/update, treat what's already in the shade as forwarded
         // so unread history isn't sent again.
         try {
@@ -50,8 +70,14 @@ class ForwarderService : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         connected = false
+        Prefs(this).raw.unregisterOnSharedPreferenceChangeListener(prefsListener)
         bot.stop()
+        network.stop()
+        power.stop()
+        handler.removeCallbacks(updateCheck)
     }
+
+    private fun startOrStopBot() = if (Prefs(this).botEnabled) bot.start() else bot.stop()
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val prefs = Prefs(this)
@@ -63,8 +89,8 @@ class ForwarderService : NotificationListenerService() {
 
         val app = appLabel(this, sbn.packageName)
         for (item in items) {
-            if (isFromBotChat(sbn.packageName, item) || isOurOwnMessage(item.text)) continue
-            sender.execute { forward(prefs, sbn.packageName, sbn.key, app, item) }
+            if (isFromBotChat(sbn.packageName, item) || Outbox.isOurOwn(item.text)) continue
+            Outbox.forward(this, sbn.packageName, app, item.title, item.text)
         }
     }
 
@@ -74,7 +100,9 @@ class ForwarderService : NotificationListenerService() {
 
     override fun onDestroy() {
         bot.stop()
-        sender.shutdown()
+        network.stop()
+        power.stop()
+        handler.removeCallbacks(updateCheck)
         super.onDestroy()
     }
 
@@ -131,19 +159,6 @@ class ForwarderService : NotificationListenerService() {
         }
     }
 
-    private fun forward(prefs: Prefs, pkg: String, key: String, app: String, item: Item) {
-        // Register before sending: Telegram may deliver the bot's message here before the API call returns.
-        ourMessages.add(normalize(plain(prefs, app, item)))
-        val status = try {
-            sendWithRetry(prefs, format(prefs, app, item), Keyboards.forNotification(pkg, app))
-            "sent"
-        } catch (e: Exception) {
-            lastSent.remove(key)  // allow a later update to retry
-            "failed: ${e.message}"
-        }
-        prefs.addLog(LogEntry(System.currentTimeMillis(), app, item.title, item.text, status))
-    }
-
     /** Remembers which apps post notifications, for the per-app switches in the settings Mini App. */
     private fun recordSeen(prefs: Prefs, sbn: StatusBarNotification) {
         if (sbn.isOngoing || sbn.packageName in Prefs.DEFAULT_IGNORED_SET) return
@@ -161,59 +176,11 @@ class ForwarderService : NotificationListenerService() {
         return telegramApp && botName.isNotBlank() && item.title == botName
     }
 
-    /** True if [text] is (part of) a message this app sent, seen again as a Telegram notification. */
-    private fun isOurOwnMessage(text: String): Boolean {
-        val n = normalize(text)
-        return n.isNotEmpty() && ourMessages.any { it == n || n.endsWith(it) }
-    }
-
     private fun shouldSkip(sbn: StatusBarNotification, prefs: Prefs): Boolean {
         val flags = sbn.notification.flags
         return sbn.packageName in prefs.ignoredSet() ||
             (prefs.skipOngoing && (sbn.isOngoing || flags and Notification.FLAG_FOREGROUND_SERVICE != 0)) ||
             (prefs.skipGroupSummary && flags and Notification.FLAG_GROUP_SUMMARY != 0)
-    }
-
-    private fun sendWithRetry(prefs: Prefs, html: String, markup: JSONObject?) {
-        var delayMs = 2_000L
-        repeat(3) { attempt ->
-            try {
-                Telegram.sendMessage(prefs.botToken, prefs.chatId, html, prefs.silent, markup)
-                return
-            } catch (e: Exception) {
-                if (attempt == 2) throw e
-                Thread.sleep(delayMs)
-                delayMs *= 5
-            }
-        }
-    }
-
-    private fun format(prefs: Prefs, app: String, item: Item): String = buildString {
-        if (prefs.showApp) append("<i>").append(escapeHtml(app)).append("</i>\n")
-        if (item.title.isNotBlank()) append("<b>").append(escapeHtml(item.title)).append("</b>\n")
-        append(escapeHtml(item.text))
-    }.trim()
-
-    /** The message as Telegram displays it (and as it reappears in Telegram's own notification). */
-    private fun plain(prefs: Prefs, app: String, item: Item): String =
-        listOfNotNull(app.takeIf { prefs.showApp }, item.title.takeIf { it.isNotBlank() }, item.text)
-            .joinToString("\n")
-
-    private fun normalize(s: String): String = s.replace(Regex("\\s+"), " ").trim()
-
-    /** Thread-safe insertion-ordered set that forgets its oldest entries. add() returns false if present. */
-    private class BoundedSet(private val max: Int) {
-        private val items = LinkedHashSet<String>()
-
-        @Synchronized
-        fun add(item: String): Boolean {
-            if (!items.add(item)) return false
-            if (items.size > max) items.remove(items.first())
-            return true
-        }
-
-        @Synchronized
-        fun any(predicate: (String) -> Boolean): Boolean = items.any(predicate)
     }
 
     companion object {
