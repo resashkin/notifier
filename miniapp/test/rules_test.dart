@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:notifier_miniapp/presets.dart';
 import 'package:notifier_miniapp/rules.dart';
 
 /// The same cases the phone runs (android RulesSpecTest): both engines must agree.
@@ -24,6 +25,27 @@ void main() {
         expect(v.action?.key, expect_['action']);
         if (expect_.containsKey('title')) expect(v.title, expect_['title']);
         if (expect_.containsKey('text')) expect(v.text, expect_['text']);
+      });
+    }
+  });
+
+  // Ready-made rules (assets/presets.json): each sample gives what it says. The phone runs the same (PresetsTest).
+  group('assets/presets.json', () {
+    final presets = (jsonDecode(File('assets/presets.json').readAsStringSync()) as Map<String, dynamic>)['presets'] as List;
+    for (final p in presets.cast<Map<String, dynamic>>()) {
+      test(p['id'], () {
+        final rule = Rule.fromJson(p['rule'] as Map<String, dynamic>);
+        expect(rule, isNotNull);
+        expect(Presets.parse(jsonEncode({'presets': [p]})), hasLength(1));
+        for (final sample in (p['samples'] as List).cast<Map<String, dynamic>>()) {
+          final input = sample['in'] as Map<String, dynamic>;
+          final n = Incoming(pkg: input['pkg'] as String, title: input['title'] as String, text: input['text'] as String);
+          final expect_ = sample['expect'] as Map<String, dynamic>;
+          final v = RuleEngine.evaluate([rule!], n);
+          expect(v.action?.key, expect_['action'], reason: n.text);
+          if (expect_.containsKey('title')) expect(v.title, expect_['title'], reason: n.text);
+          if (expect_.containsKey('text')) expect(v.text, expect_['text'], reason: n.text);
+        }
       });
     }
   });

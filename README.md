@@ -140,6 +140,11 @@ Three kinds, checked in this order:
 Conditions are combined with AND: app, chat or sender (the notification title, exactly), words or phrases (any of
 them), regex. Letter case and ё/е don't matter. The per-app switches are rules too (app → drop).
 
+**Templates** in the Mini App add ready-made rules for common noise: bank ads in SMS (900, VTB, T-Bank) into the
+digest, "couldn't reach you" SMS as one line, Sber 900 purchases and Raiffeisen Serbia (Moja mBanka) payments as
+`💳 −amount · where`. They're in [`miniapp/assets/presets.json`](miniapp/assets/presets.json) with made-up samples that
+both engines are tested on; send a pull request to add yours.
+
 The **digest** goes out at fixed times (09:00, 13:00, 19:00 by default), grouped by app, with sound; an empty digest
 isn't sent. The phone and the Mini App run the same engine on the same test cases ([`spec/rules-cases.json`](spec)),
 so the Mini App's preview matches what the phone does.

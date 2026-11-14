@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'i18n.dart';
 import 'model.dart';
+import 'presets.dart';
 import 'rules.dart';
 import 'telegram.dart';
 import 'widgets.dart';
@@ -77,6 +78,15 @@ class RulesScreen extends StatefulWidget {
 
 class _RulesScreenState extends State<RulesScreen> {
   late List<Rule> _rules = widget.rules;
+  List<Preset> _presets = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    Presets.load().then((p) {
+      if (mounted) setState(() => _presets = p);
+    });
+  }
 
   void _set(List<Rule> rules) {
     TelegramApp.hapticSelection();
@@ -147,6 +157,13 @@ class _RulesScreenState extends State<RulesScreen> {
     final mute = _rules.where((r) => r.kind == RuleKind.mute).toList();
     final map = _rules.where((r) => r.kind == RuleKind.map).toList();
 
+    // Templates not added yet, the ones matching recent notifications first.
+    final templates = [
+      for (final p in _presets)
+        if (!p.isIn(_rules))
+          (p, [for (final item in state.recent) if (RuleEngine.matches(p.newRule(), item.incoming)) item]),
+    ]..sort((a, b) => b.$2.length.compareTo(a.$2.length));
+
     return Scaffold(
       appBar: AppBar(title: Text(tr('Rules', 'Правила')), automaticallyImplyLeading: !TelegramApp.inTelegram),
       body: SafeArea(
@@ -180,6 +197,32 @@ class _RulesScreenState extends State<RulesScreen> {
                 addTile(RuleKind.map),
               ],
             ),
+            if (templates.isNotEmpty)
+              Section(
+                title: tr('Templates', 'Готовые шаблоны'),
+                footer: tr(
+                  'Opens the editor with the rule filled in: check the preview, change anything, then add it.',
+                  'Открывает редактор с готовым правилом: проверьте превью, поправьте что нужно и добавьте.',
+                ),
+                children: [
+                  for (final (preset, matching) in templates)
+                    ListTile(
+                      leading: const Icon(Icons.auto_awesome_outlined),
+                      title: Text(preset.name),
+                      subtitle: Text(
+                        [
+                          preset.about,
+                          if (matching.isNotEmpty)
+                            tr(
+                              '${matching.length} recent match${matching.length == 1 ? '' : 'es'}',
+                              'совпадений среди недавних: ${matching.length}',
+                            ),
+                        ].join(' · '),
+                      ),
+                      onTap: () => _edit(preset.newRule(), example: matching.firstOrNull),
+                    ),
+                ],
+              ),
             if (state.recent.isNotEmpty)
               Section(
                 title: tr('From a recent notification', 'Из недавнего уведомления'),

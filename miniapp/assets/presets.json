@@ -1,0 +1,128 @@
+{
+  "about": "Ready-made rules offered in the Mini App (Rules → Templates), for common noisy notifications. Samples are made up (no real data); both engines check them: android PresetsTest and miniapp test/rules_test.dart. expect is as in spec/rules-cases.json.",
+  "presets": [
+    {
+      "id": "bank-sms-ads",
+      "en": "Bank ads in SMS → digest",
+      "ru": "Реклама банков в SMS → в дайджест",
+      "about_en": "SMS from 900, VTB, T-Bank with a link or a greeting by name; codes are kept",
+      "about_ru": "SMS от 900, ВТБ, Т-Банка со ссылкой или обращением по имени; коды не трогает",
+      "rule": {
+        "k": "mute", "a": "digest",
+        "chats": ["900", "VTB", "T-Bank", "T-Mob", "Tinkoff", "Alfa-Bank"],
+        "re": "^(?![\\s\\S]*(?:код|code))[\\s\\S]*(?:(?:вич|вна),|\\.(?:ru|рф)/)"
+      },
+      "samples": [
+        {
+          "in": {"pkg": "sms", "title": "900", "text": "Иван Петрович, вклады — до 15% годовых: s.sber.ru/abc12  ПАО Сбербанк"},
+          "expect": {"action": "digest"}
+        },
+        {
+          "in": {"pkg": "sms", "title": "900", "text": "Иван Петрович, в СберБанк Онлайн есть раздел «Для жизни»: скидки и кешбэк"},
+          "expect": {"action": "digest"}
+        },
+        {
+          "in": {"pkg": "sms", "title": "VTB", "text": "Кешбэк 15% в ВТБ Онлайн: втб.рф/r/x1 Банк ВТБ (ПАО)"},
+          "expect": {"action": "digest"}
+        },
+        {
+          "in": {"pkg": "sms", "title": "900", "text": "MIR-1234 14:05 Покупка 1 250р SHOP 77 Баланс: 10 500р"},
+          "expect": {"action": null}
+        },
+        {
+          "in": {"pkg": "sms", "title": "900", "text": "Код для входа в СберБанк Онлайн: 12345. Никому его не сообщайте. s.sber.ru/x"},
+          "expect": {"action": null}
+        }
+      ]
+    },
+    {
+      "id": "missed-calls-low-balance",
+      "en": "Missed calls (low balance) → one line",
+      "ru": "Пропущенные звонки (мало денег) → одна строка",
+      "about_en": "“This caller couldn't reach you…” SMS become the number only",
+      "about_ru": "SMS «Этот абонент не дозвонился до вас…» превращаются в номер",
+      "rule": {
+        "k": "map",
+        "words": ["не дозвонился до вас"],
+        "parse": "не дозвонился до вас",
+        "outTitle": "📵 {title}",
+        "out": "не дозвонился: мало денег на балансе"
+      },
+      "samples": [
+        {
+          "in": {"pkg": "sms", "title": "8 (900) 123-45-67", "text": "Этот абонент не дозвонился до вас, так как на вашем балансе недостаточно средств. Стоимость звонка в роуминге — 35 р. в минуту. Пополните баланс телефона и перезвоните: t.tb.ru/abc"},
+          "expect": {"action": null, "title": "📵 8 (900) 123-45-67", "text": "не дозвонился: мало денег на балансе"}
+        }
+      ]
+    },
+    {
+      "id": "sber-900-purchases",
+      "en": "Sber 900 purchases → one line",
+      "ru": "Покупки по SMS 900 → одна строка",
+      "about_en": "Amount, shop and balance",
+      "about_ru": "Сумма, магазин и остаток",
+      "rule": {
+        "k": "map",
+        "chats": ["900"],
+        "links": true,
+        "parse": "Покупка (?<amount>[\\d ]+(?:[.,]\\d+)?) ?(?<cur>р|₽|RUB) (?<shop>.+?) Баланс:? (?<left>[\\d ]+(?:[.,]\\d+)?) ?(?:р|₽|RUB)",
+        "out": "💳 −{amount} {cur} · {shop}\n💰 {left} {cur}"
+      },
+      "samples": [
+        {
+          "in": {"pkg": "sms", "title": "900", "text": "MIR-1234 14:05 Покупка 1 250р SHOP 77 Баланс: 10 500р"},
+          "expect": {"action": null, "title": "900", "text": "💳 −1 250 р · SHOP 77\n💰 10 500 р"}
+        }
+      ]
+    },
+    {
+      "id": "mbanka-payments",
+      "en": "Moja mBanka payments → one line",
+      "ru": "Moja mBanka: оплаты → одна строка",
+      "about_en": "Card and IPS QR payments: amount, where, available",
+      "about_ru": "Оплата картой и по IPS QR: сумма, где, остаток",
+      "rule": {
+        "k": "map",
+        "chats": ["Plaćanje karticom", "Raiffeisen banka"],
+        "words": ["Iznos"],
+        "parse": "Iznos:? (?<sum>[\\d.,]+) (?<cur>[A-Z]{3})(?:[\\s|]+Gde: (?<where>[^|]+?))?[\\s|]+Raspolo\\S* (?<left>[\\d.,]+)",
+        "outTitle": "💳 −{sum} {cur}",
+        "out": "{where}\n💰 {left} {cur}"
+      },
+      "samples": [
+        {
+          "in": {"pkg": "bank", "title": "Plaćanje karticom", "text": "4054**0000 | Iznos 1.250,00 RSD | Gde: SHOP 12 BEOGRAD RS | Raspoloživo 45.000,00 RSD | Kliknite za više detalja"},
+          "expect": {"action": null, "title": "💳 −1.250,00 RSD", "text": "SHOP 12 BEOGRAD RS\n💰 45.000,00 RSD"}
+        },
+        {
+          "in": {"pkg": "bank", "title": "Raiffeisen banka", "text": "Uspešno plaćanje IPS QR kodom\r\nDatum: 01.11.2026\r\nIznos: 2.000,00 RSD\r\nRaspoloživo: 43.000,00 RSD"},
+          "expect": {"action": null, "title": "💳 −2.000,00 RSD", "text": "💰 43.000,00 RSD"}
+        },
+        {
+          "in": {"pkg": "bank", "title": "Raiffeisen banka", "text": "Poštovani, dobili ste odgovor u inbox."},
+          "expect": {"action": null, "title": "Raiffeisen banka", "text": "Poštovani, dobili ste odgovor u inbox."}
+        }
+      ]
+    },
+    {
+      "id": "mbanka-incoming",
+      "en": "Moja mBanka incoming payments → one line",
+      "ru": "Moja mBanka: поступления → одна строка",
+      "about_en": "Amount only",
+      "about_ru": "Только сумма",
+      "rule": {
+        "k": "map",
+        "chats": ["Uplata na račun"],
+        "parse": "Iznos:? (?<sum>[\\d.,]+) (?<cur>[A-Z]{3})",
+        "outTitle": "💰 +{sum} {cur}",
+        "out": "{title}"
+      },
+      "samples": [
+        {
+          "in": {"pkg": "bank", "title": "Uplata na račun", "text": "Iznos 1.000,00 RSD | 01.11.2026 | Račun 1234**0000 | Kliknite ovde i vidite detalje o uplati u aplikaciji"},
+          "expect": {"action": null, "title": "💰 +1.000,00 RSD", "text": "Uplata na račun"}
+        }
+      ]
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import java.util.Calendar
 
 /**
@@ -104,8 +105,13 @@ object Digest {
         )
         val now = System.currentTimeMillis()
         val next = slots(Prefs(context), now).firstOrNull { it > now } ?: return am.cancel(intent)
-        // Inexact: exact alarms need a permission Android 14 denies by default; a few minutes late is fine.
-        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, intent)
+        // On time where exact alarms are allowed (always before Android 12; after that, Android 14 turns the
+        // permission off by default). Otherwise within 10 minutes: a plain inexact alarm can come hours late.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()) {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, intent)
+        } else {
+            am.setWindow(AlarmManager.RTC_WAKEUP, next, 10 * 60_000L, intent)
+        }
     }
 
     /** The digest times of yesterday, today and tomorrow (local time), as epoch ms, sorted. */
