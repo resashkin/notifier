@@ -52,17 +52,24 @@ object Updater {
         return Release(tag.removePrefix("v"), code, apk.getString("browser_download_url"))
     }
 
-    /** Checks for a newer release and installs it if [install]. Blocking; returns a message for the user. */
-    fun check(context: Context, install: Boolean): String {
+    /** Checks for a newer release and installs it if [install]. Blocking; returns a message for the user
+     *  ([t]: the chat's language when it goes to the chat). */
+    fun check(context: Context, install: Boolean, t: Lang = Lang.EN): String {
         val prefs = Prefs(context)
         prefs.lastUpdateCheck = System.currentTimeMillis()
         val current = installedVersion(context)
-        val release = latest(prefs.updateRepo) ?: return "No releases in ${prefs.updateRepo} yet."
-        if (release.code <= installedCode(context)) return "Notifier $current is up to date."
-        if (!install) return "Notifier ${release.version} is available (you have $current). Send /update to install."
+        val release = latest(prefs.updateRepo) ?: return t("No releases in ${prefs.updateRepo} yet.", "В ${prefs.updateRepo} пока нет релизов.")
+        if (release.code <= installedCode(context)) return t("Notifier $current is up to date.", "Notifier $current — последняя версия.")
+        if (!install) return t(
+            "Notifier ${release.version} is available (you have $current). Send /update to install.",
+            "Доступен Notifier ${release.version} (у вас $current). Отправьте /update, чтобы установить.",
+        )
         install(context, release)
-        return "Installing Notifier ${release.version} (you have $current)…" +
-            if (silent) "" else "\nTap “Update” on the phone to finish (Android ${Build.VERSION.RELEASE} asks once per update)."
+        return t("Installing Notifier ${release.version} (you have $current)…", "Устанавливаю Notifier ${release.version} (у вас $current)…") +
+            if (silent) "" else t(
+                "\nTap “Update” on the phone to finish (Android ${Build.VERSION.RELEASE} asks once per update).",
+                "\nНажмите «Обновить» на телефоне (Android ${Build.VERSION.RELEASE} спрашивает при каждом обновлении).",
+            )
     }
 
     /** Daily check from the service: announces a new version in the chat once, and installs it if allowed. */
@@ -75,7 +82,7 @@ object Updater {
             val release = latest(prefs.updateRepo) ?: return
             if (release.code <= installedCode(context) || release.version == prefs.announcedUpdate) return
             prefs.announcedUpdate = release.version
-            val message = check(context, install = prefs.autoUpdate)
+            val message = check(context, install = prefs.autoUpdate, t = Lang.of(prefs))
             Telegram.sendMessage(prefs.botToken, prefs.chatId, "⬆️ " + escapeHtml(message), silent = false)
         } catch (e: Exception) {
             prefs.updateStatus = "check failed: ${e.message}"

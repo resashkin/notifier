@@ -35,6 +35,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".RuleEditActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".ForwarderService"
             android:exported="true"
@@ -44,6 +49,11 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- Digest times (Digest.kt). -->
+        <receiver
+            android:name=".DigestReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".UpdateReceiver"

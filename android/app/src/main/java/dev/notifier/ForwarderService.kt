@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Receives every notification posted on the phone (once the user grants notification access)
  * and forwards the useful ones to a Telegram chat, one message per new item (see [Outbox]).
+ * Each item goes through the rules first (Rules.kt): dropped, kept for the [Digest], sent silently, rewritten.
  * While connected it also runs the bot ([BotController]) and watches the internet ([NetworkWatch]).
  */
 class ForwarderService : NotificationListenerService() {
@@ -53,6 +54,7 @@ class ForwarderService : NotificationListenerService() {
         network.start()
         power.start()
         Outbox.flush(this)  // anything left in the queue from before a restart
+        Thread { Digest.check(this) }.start()  // a digest time missed while we weren't running, and the next alarm
         handler.removeCallbacks(updateCheck)
         handler.postDelayed(updateCheck, 60_000)  // give the network a moment after boot
         // Our memory is RAM-only: after a reboot/update, treat what's already in the shade as forwarded
@@ -88,10 +90,31 @@ class ForwarderService : NotificationListenerService() {
         if (prefs.isPaused()) return
 
         val app = appLabel(this, sbn.packageName)
+        val rules = prefs.rules()
         for (item in items) {
             if (isFromBotChat(sbn.packageName, item) || Outbox.isOurOwn(item.text)) continue
-            Outbox.forward(this, sbn.packageName, app, item.title, item.text)
+            dispatch(prefs, rules, Incoming(sbn.packageName, item.title, item.text, app))
         }
+    }
+
+    /** Exceptions, then mute (on the original text), then the mapper; see [RuleEngine]. */
+    private fun dispatch(prefs: Prefs, rules: List<Rule>, n: Incoming) {
+        val v = RuleEngine.evaluate(rules, n)
+        val rule = (v.mute ?: v.map ?: v.exception)?.label({ appLabel(this, it) }).orEmpty()
+        val emptied = v.title.isBlank() && v.text.isBlank()  // a map rule cut everything
+        val action = if (emptied) Rule.Action.DROP else v.action
+        if (action != Rule.Action.DROP && action != Rule.Action.DIGEST) return Outbox.forward(this, n, v, rule)
+
+        val id = java.util.UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        if (action == Rule.Action.DIGEST) prefs.addDigest(DigestItem(now, n.pkg, n.app, v.title, v.text, id))
+        prefs.addLog(
+            LogEntry(
+                now, n.app, n.title, n.text, if (action == Rule.Action.DROP) "dropped" else "in digest", id, n.pkg,
+                action = action.key, rule = rule,
+                outTitle = v.title.takeIf { it != n.title }.orEmpty(), outText = v.text.takeIf { it != n.text }.orEmpty(),
+            )
+        )
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
@@ -178,7 +201,7 @@ class ForwarderService : NotificationListenerService() {
 
     private fun shouldSkip(sbn: StatusBarNotification, prefs: Prefs): Boolean {
         val flags = sbn.notification.flags
-        return sbn.packageName in prefs.ignoredSet() ||
+        return sbn.packageName in Prefs.DEFAULT_IGNORED_SET ||
             (prefs.skipOngoing && (sbn.isOngoing || flags and Notification.FLAG_FOREGROUND_SERVICE != 0)) ||
             (prefs.skipGroupSummary && flags and Notification.FLAG_GROUP_SUMMARY != 0)
     }

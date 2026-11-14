@@ -2,11 +2,14 @@
 ///
 /// Link format (built by the Android app's `MiniAppState.kt`): gzip(JSON), base64url without padding.
 /// Back channel: `Telegram.WebApp.sendData(json)`, ≤ 4096 bytes, containing only what changed.
+/// Rules travel as a diff against the copy this Mini App keeps (see sync.dart).
 library;
 
 import 'dart:convert';
 
 import 'package:archive/archive.dart';
+
+import 'rules.dart';
 
 class AppInfo {
   AppInfo({required this.pkg, required this.label, required this.muted, required this.count, required this.lastSeen});
@@ -26,8 +29,9 @@ class AppInfo {
   final DateTime lastSeen;
 }
 
-class Rules {
-  const Rules({
+/// Forwarding options (switches) and the battery warning.
+class Options {
+  const Options({
     required this.skipOngoing,
     required this.skipGroupSummary,
     required this.showApp,
@@ -49,14 +53,14 @@ class Rules {
   final bool lowBattery;
   final int lowBatteryLevel;
 
-  Rules copyWith({
+  Options copyWith({
     bool? skipOngoing,
     bool? skipGroupSummary,
     bool? showApp,
     bool? silent,
     bool? lowBattery,
     int? lowBatteryLevel,
-  }) => Rules(
+  }) => Options(
     skipOngoing: skipOngoing ?? this.skipOngoing,
     skipGroupSummary: skipGroupSummary ?? this.skipGroupSummary,
     showApp: showApp ?? this.showApp,
@@ -202,14 +206,71 @@ class MobileInfo {
   final bool roaming;
 }
 
+/// A recent notification as the phone logged it (original title and text), to build or preview rules.
+/// [status]: the mute action that applied ("drop", "digest", "silent") or "" when forwarded.
+class RecentItem {
+  const RecentItem({
+    required this.pkg,
+    required this.app,
+    required this.title,
+    required this.text,
+    this.status = '',
+    required this.time,
+  });
+
+  factory RecentItem.fromJson(Map<String, dynamic> j) => RecentItem(
+    pkg: (j['p'] as String?) ?? '',
+    app: (j['a'] as String?) ?? '',
+    title: (j['t'] as String?) ?? '',
+    text: (j['x'] as String?) ?? '',
+    status: (j['s'] as String?) ?? '',
+    time: DateTime.fromMillisecondsSinceEpoch((j['time'] as num?)?.toInt() ?? 0),
+  );
+
+  final String pkg;
+  final String app;
+  final String title;
+  final String text;
+  final String status;
+  final DateTime time;
+
+  Incoming get incoming => Incoming(pkg: pkg, title: title, text: text, app: app);
+}
+
+/// The rules part of the link: what changed on the phone since the copy this Mini App confirmed last.
+/// [base] = the revision the diff applies to ("" = the diff is everything); [rev] = the phone's revision now.
+/// [tooBig]: the rules didn't fit in the link.
+class RulesLink {
+  const RulesLink({required this.rev, required this.base, required this.diff, this.tooBig = false});
+
+  factory RulesLink.fromJson(Map<String, dynamic> j) => RulesLink(
+    rev: (j['rev'] as String?) ?? '',
+    base: (j['base'] as String?) ?? '',
+    diff: RulesDiff.fromJson(j),
+    tooBig: j['too_big'] == true,
+  );
+
+  final String rev;
+  final String base;
+  final RulesDiff diff;
+  final bool tooBig;
+}
+
 class PhoneState {
   PhoneState({
     required this.device,
     required this.generatedAt,
     required this.pausedUntil,
-    required this.rules,
+    required this.options,
     required this.apps,
     this.health,
+    this.lang,
+    this.rules,
+    this.digestTimes,
+    this.digestWaiting = 0,
+    this.recent = const [],
+    this.example,
+    this.open,
   });
 
   /// Decodes the `s` link parameter. Throws [FormatException] if it isn't valid.
@@ -222,7 +283,7 @@ class PhoneState {
       device: (json['device'] as String?) ?? 'Phone',
       generatedAt: DateTime.fromMillisecondsSinceEpoch((json['ts'] as num).toInt()),
       pausedUntil: DateTime.fromMillisecondsSinceEpoch((json['paused_until'] as num?)?.toInt() ?? 0),
-      rules: Rules(
+      options: Options(
         skipOngoing: json['skip_ongoing'] as bool? ?? true,
         skipGroupSummary: json['skip_group_summary'] as bool? ?? true,
         showApp: json['show_app'] as bool? ?? true,
@@ -235,6 +296,17 @@ class PhoneState {
       health: json['health'] is Map<String, dynamic>
           ? PhoneHealth.fromJson(json['health'] as Map<String, dynamic>)
           : null, // links from Android builds before phone health
+      lang: json['lang'] as String?,
+      // Absent in links from Android builds before rules.
+      rules: json['rules'] is Map<String, dynamic> ? RulesLink.fromJson(json['rules'] as Map<String, dynamic>) : null,
+      digestTimes: json['digest'] is List ? [for (final t in json['digest'] as List) '$t'] : null,
+      digestWaiting: (json['digest_n'] as num?)?.toInt() ?? 0,
+      recent: [
+        for (final r in (json['recent'] as List? ?? const []))
+          if (r is Map<String, dynamic>) RecentItem.fromJson(r),
+      ],
+      example: json['ex'] is Map<String, dynamic> ? RecentItem.fromJson(json['ex'] as Map<String, dynamic>) : null,
+      open: json['open'] as String?,
     );
   }
 
@@ -245,7 +317,55 @@ class PhoneState {
       device: 'Demo phone',
       generatedAt: now,
       pausedUntil: DateTime.fromMillisecondsSinceEpoch(0),
-      rules: const Rules(skipOngoing: true, skipGroupSummary: true, showApp: true, silent: false),
+      options: const Options(skipOngoing: true, skipGroupSummary: true, showApp: true, silent: false),
+      lang: 'en',
+      rules: RulesLink(
+        rev: 'demo',
+        base: '',
+        diff: RulesDiff(
+          [
+            Rule(id: 'demo0001', kind: RuleKind.always, words: const ['code', 'код']),
+            Rule(id: 'demo0002', kind: RuleKind.mute, apps: const ['com.google.android.googlequicksearchbox']),
+            Rule(id: 'demo0003', kind: RuleKind.mute, words: const ['sale', 'скидк'], action: RuleAction.digest),
+            Rule(
+              id: 'demo0004',
+              kind: RuleKind.map,
+              chats: const ['900'],
+              links: true,
+              parse: r'Покупка (?<amount>[\d ]+(?:[.,]\d+)?) ?(?<cur>р|₽|RUB) (?<shop>.+?) Баланс',
+              out: '💳 −{amount} {cur} · {shop}',
+            ),
+          ],
+          const [],
+          null,
+        ),
+      ),
+      digestTimes: const ['09:00', '13:00', '19:00'],
+      digestWaiting: 3,
+      recent: [
+        RecentItem(
+          pkg: 'com.google.android.apps.messaging',
+          app: 'Messages',
+          title: '900',
+          text: 'MIR-1234 14:05 Покупка 1 250р PYATEROCHKA 7712 Баланс: 10 500р',
+          time: now.subtract(const Duration(minutes: 5)),
+        ),
+        RecentItem(
+          pkg: 'com.shop.app',
+          app: 'Shop',
+          title: 'Big sale',
+          text: 'Up to 50% off today only https://shop.example/sale',
+          status: 'digest',
+          time: now.subtract(const Duration(minutes: 30)),
+        ),
+        RecentItem(
+          pkg: 'com.whatsapp',
+          app: 'WhatsApp',
+          title: 'Work chat',
+          text: 'Ann: meeting moved to 15:00',
+          time: now.subtract(const Duration(hours: 1)),
+        ),
+      ],
       health: const PhoneHealth(
         battery: BatteryInfo(
           level: 86,
@@ -308,31 +428,83 @@ class PhoneState {
   final String device;
   final DateTime generatedAt;
   final DateTime pausedUntil;
-  final Rules rules;
+  final Options options;
   final List<AppInfo> apps;
   final PhoneHealth? health;
 
+  /// The phone's bot language ("ru"/"en"), used when Telegram doesn't tell us the user's.
+  final String? lang;
+
+  /// Null when the phone's app predates rules: only whole apps can be muted then.
+  final RulesLink? rules;
+
+  /// Digest times "HH:MM" (empty = off); null from phones without the digest.
+  final List<String>? digestTimes;
+  final int digestWaiting;
+  final List<RecentItem> recent;
+
+  /// The notification to make a rule from (/rule as a reply in the chat).
+  final RecentItem? example;
+
+  /// Screen to start on: "rules", or "rule" (the editor with [example]).
+  final String? open;
+
   bool get isPaused => pausedUntil.isAfter(DateTime.now());
+
+  String appLabel(String pkg) =>
+      apps.where((a) => a.pkg == pkg).firstOrNull?.label ??
+      recent.where((r) => r.pkg == pkg).firstOrNull?.app ??
+      (example?.pkg == pkg ? example!.app : pkg);
 }
 
 /// What the user changed. Sent to the bot; the phone applies it.
 class Changes {
-  Changes({required this.mute, required this.unmute, required this.rules, this.pauseMinutes, this.resume = false});
+  Changes({
+    this.mute = const [],
+    this.unmute = const [],
+    this.options = const {},
+    this.pauseMinutes,
+    this.resume = false,
+    this.rules,
+    this.digest,
+  });
 
+  /// Whole apps, for phones without rules.
   final List<String> mute;
   final List<String> unmute;
-  final Map<String, Object> rules;
+
+  /// Changed forwarding options and battery settings (keys as the phone names them).
+  final Map<String, Object> options;
   final int? pauseMinutes;
   final bool resume;
 
-  bool get isEmpty => mute.isEmpty && unmute.isEmpty && rules.isEmpty && pauseMinutes == null && !resume;
+  /// Rule changes made on top of the link's revision.
+  final RulesDiff? rules;
 
-  String toJson() => jsonEncode({
+  /// New digest times, when changed.
+  final List<String>? digest;
+
+  /// How many things changed, for "Save N changes".
+  int get count =>
+      mute.length +
+      unmute.length +
+      options.length +
+      (pauseMinutes != null || resume ? 1 : 0) +
+      (rules?.size ?? 0) +
+      (digest != null ? 1 : 0);
+
+  bool get isEmpty => count == 0;
+
+  /// [rulesSync] = {base, rev} for the rules (sent with every save once rules are loaded, so the phone
+  /// knows which copy this Mini App now keeps).
+  String toJson({Map<String, String>? rulesSync}) => jsonEncode({
     'v': 1,
     if (mute.isNotEmpty) 'mute': mute,
     if (unmute.isNotEmpty) 'unmute': unmute,
-    ...rules,
+    ...options,
     if (pauseMinutes != null) 'pause_minutes': pauseMinutes,
     if (resume) 'resume': true,
+    if (rulesSync != null) 'rules': {...rulesSync, ...(rules ?? const RulesDiff([], [], null)).toJson()},
+    'digest': ?digest,
   });
 }

@@ -27,9 +27,11 @@ class PowerWatch(private val context: Context) {
         prefs.unpluggedAt = System.currentTimeMillis()
         val level = BatteryEstimate.level(context)
         val left = BatteryEstimate.minutesLeft(context)
+        val t = Lang.of(prefs)
         Outbox.notice(
-            context, "🔌 Charger disconnected",
-            "Running on battery: $level %" + (left?.let { " · about ${Health.duration(it)} left" } ?: ""),
+            context, t("🔌 Charger disconnected", "🔌 Зарядка отключена"),
+            t("Running on battery: $level %", "Работает от батареи: $level %") +
+                (left?.let { t(" · about ${Health.duration(it, t)} left", " · осталось около ${Health.duration(it, t)}") } ?: ""),
         )
     }
 
@@ -53,9 +55,11 @@ class PowerWatch(private val context: Context) {
                     if (since == 0L) return  // a short blip: no warning was sent
                     prefs.unpluggedAt = 0
                     val minutes = (System.currentTimeMillis() - since) / 60_000
+                    val t = Lang.of(prefs)
                     Outbox.notice(
-                        context, "⚡ Charger connected",
-                        "Battery ${BatteryEstimate.level(context)} % · was on battery ${Health.duration(minutes)}",
+                        context, t("⚡ Charger connected", "⚡ Зарядка подключена"),
+                        t("Battery ${BatteryEstimate.level(context)} % · was on battery ${Health.duration(minutes, t)}",
+                            "Батарея ${BatteryEstimate.level(context)} % · без зарядки ${Health.duration(minutes, t)}"),
                     )
                 }
             }
@@ -71,9 +75,11 @@ class PowerWatch(private val context: Context) {
         if (!prefs.lowBatteryOn || prefs.lowBatteryWarned) return
         prefs.lowBatteryWarned = true
         val left = BatteryEstimate.minutesLeft(context)
+        val t = Lang.of(prefs)
         Outbox.notice(
-            context, "🪫 Battery low: $level %",
-            (left?.let { "About ${Health.duration(it)} left. " } ?: "") + "Plug in the charger.",
+            context, t("🪫 Battery low: $level %", "🪫 Батарея садится: $level %"),
+            (left?.let { t("About ${Health.duration(it, t)} left. ", "Осталось около ${Health.duration(it, t)}. ") } ?: "") +
+                t("Plug in the charger.", "Подключите зарядку."),
         )
     }
 

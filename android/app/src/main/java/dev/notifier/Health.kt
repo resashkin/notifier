@@ -161,57 +161,67 @@ object Health {
         else -> null
     }
 
-    /** Human-readable lines, used by /status and the app screen. */
-    fun lines(h: JSONObject): List<String> {
+    /** Human-readable lines, used by /status (in the chat's language) and the app screen (English). */
+    fun lines(h: JSONObject, t: Lang = Lang.EN): List<String> {
         val lines = mutableListOf<String>()
 
         h.optJSONObject("battery")?.takeIf { it.has("level") }?.let { b ->
             val plugged = b.optString("plugged").takeIf { it != "none" }
-            val left = b.optLong("left_min").takeIf { it > 0 }?.let { " · ~${duration(it)} left" } ?: ""
-            lines += "🔋 ${b.getInt("level")}% · ${b.optString("status")}${plugged?.let { " ($it)" } ?: ""}$left · ${b.optDouble("temp_c")} °C"
+            val left = b.optLong("left_min").takeIf { it > 0 }?.let { t(" · ~${duration(it, t)} left", " · осталось ~${duration(it, t)}") } ?: ""
+            val status = b.optString("status")
+            val statusText = if (!t.ru) status else when (status) {
+                "charging" -> "заряжается"
+                "discharging" -> "разряжается"
+                "full" -> "заряжена"
+                "not charging" -> "не заряжается"
+                else -> status
+            }
+            lines += "🔋 ${b.getInt("level")}% · $statusText${plugged?.let { " ($it)" } ?: ""}$left · ${b.optDouble("temp_c")} °C"
             lines += listOfNotNull(
                 "%.2f V".format(b.optDouble("voltage_v")),
                 b.optInt("current_ma").takeIf { it > 0 }?.let { "$it mA" },
-                b.optLong("full_in_min").takeIf { it > 0 }?.let { "full in ${duration(it)}" },
-                "health ${b.optString("health")}",
+                b.optLong("full_in_min").takeIf { it > 0 }?.let { t("full in ${duration(it, t)}", "до полной ${duration(it, t)}") },
+                t("health ", "состояние ") + b.optString("health"),
             ).joinToString(" · ", prefix = "    ")
         }
 
         h.optJSONObject("wifi")?.let { w ->
             lines += when {
-                !w.optBoolean("enabled") -> "📶 Wi-Fi off"
-                !w.optBoolean("connected") -> "📶 Wi-Fi not connected"
+                !w.optBoolean("enabled") -> t("📶 Wi-Fi off", "📶 Wi-Fi выключен")
+                !w.optBoolean("connected") -> t("📶 Wi-Fi not connected", "📶 Wi-Fi не подключён")
                 else -> "📶 " + listOfNotNull(
-                    w.optString("ssid").ifEmpty { "Wi-Fi (name hidden)" },
+                    w.optString("ssid").ifEmpty { t("Wi-Fi (name hidden)", "Wi-Fi (имя скрыто)") },
                     "${w.optInt("rssi_dbm")} dBm (${w.optInt("level")}/4)",
                     w.optString("band").ifEmpty { null },
-                    w.optInt("mbps").takeIf { it > 0 }?.let { "$it Mbps" },
+                    w.optInt("mbps").takeIf { it > 0 }?.let { t("$it Mbps", "$it Мбит/с") },
                     w.optString("ip").ifEmpty { null },
                 ).joinToString(" · ")
             }
         }
 
         h.optJSONObject("mobile")?.let { m ->
-            lines += if (m.optString("sim") != "ready") "📱 Mobile: ${m.optString("sim")}" else "📱 " + listOfNotNull(
-                m.optString("operator").ifEmpty { "Mobile" },
+            lines += if (m.optString("sim") != "ready") t("📱 Mobile: ", "📱 Мобильная связь: ") + m.optString("sim") else "📱 " + listOfNotNull(
+                m.optString("operator").ifEmpty { t("Mobile", "Мобильная связь") },
                 m.optString("type").ifEmpty { null },
-                m.takeIf { it.has("level") }?.let { "signal ${it.getInt("level")}/4" + (if (it.has("dbm")) " (${it.getInt("dbm")} dBm)" else "") },
-                m.takeIf { it.has("data") }?.let { if (it.getBoolean("data")) "data on" else "data off" },
-                "roaming".takeIf { m.optBoolean("roaming") },
+                m.takeIf { it.has("level") }?.let { t("signal ", "сигнал ") + "${it.getInt("level")}/4" + (if (it.has("dbm")) " (${it.getInt("dbm")} dBm)" else "") },
+                m.takeIf { it.has("data") }?.let { if (it.getBoolean("data")) t("data on", "данные вкл.") else t("data off", "данные выкл.") },
+                t("roaming", "роуминг").takeIf { m.optBoolean("roaming") },
             ).joinToString(" · ")
         }
 
         h.optJSONObject("internet")?.let { n ->
-            lines += if (n.optString("via") == "none") "🌐 No internet"
-            else "🌐 Internet via ${n.optString("via")} " + if (n.optBoolean("ok")) "✓" else "(no access)"
+            val via = n.optString("via")
+            val viaText = if (t.ru && via == "mobile") "мобильную сеть" else via
+            lines += if (via == "none") t("🌐 No internet", "🌐 Нет интернета")
+            else t("🌐 Internet via $viaText ", "🌐 Интернет через $viaText ") + if (n.optBoolean("ok")) "✓" else t("(no access)", "(нет доступа)")
         }
-        lines += "⏱ Up ${duration(h.optLong("uptime_min"))}"
+        lines += t("⏱ Up ", "⏱ Работает ") + duration(h.optLong("uptime_min"), t)
         return lines
     }
 
-    fun duration(minutes: Long): String = when {
-        minutes < 60 -> "$minutes min"
-        minutes < 24 * 60 -> "${minutes / 60} h ${minutes % 60} min"
-        else -> "${minutes / (24 * 60)} d ${minutes % (24 * 60) / 60} h"
+    fun duration(minutes: Long, t: Lang = Lang.EN): String = when {
+        minutes < 60 -> t("$minutes min", "$minutes мин")
+        minutes < 24 * 60 -> t("${minutes / 60} h ${minutes % 60} min", "${minutes / 60} ч ${minutes % 60} мин")
+        else -> t("${minutes / (24 * 60)} d ${minutes % (24 * 60) / 60} h", "${minutes / (24 * 60)} д ${minutes % (24 * 60) / 60} ч")
     }
 }

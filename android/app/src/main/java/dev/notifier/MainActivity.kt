@@ -42,11 +42,11 @@ class MainActivity : Activity() {
     private val skipGroupSummary by lazy { findViewById<CheckBox>(R.id.skip_group_summary) }
     private val showApp by lazy { findViewById<CheckBox>(R.id.show_app) }
     private val silent by lazy { findViewById<CheckBox>(R.id.silent) }
-    private val ignored by lazy { findViewById<EditText>(R.id.ignored) }
     private val autoUpdate by lazy { findViewById<Switch>(R.id.auto_update) }
     private val lowBatteryOn by lazy { findViewById<Switch>(R.id.low_battery_on) }
     private val lowBatteryLevel by lazy { findViewById<SeekBar>(R.id.low_battery_level) }
     private val updateRepo by lazy { findViewById<EditText>(R.id.update_repo) }
+    private val digestTimes by lazy { findViewById<EditText>(R.id.digest_times) }
 
     private val tabs by lazy {
         listOf(
@@ -62,10 +62,11 @@ class MainActivity : Activity() {
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         runOnUiThread {
             when (key) {
-                Prefs.KEY_LOG -> showRecent()
+                Prefs.KEY_LOG -> { showRecent(); showDigestStatus() }
+                Prefs.KEY_RULES -> showRules()
+                Prefs.KEY_DIGEST_TIMES -> if (!digestTimes.hasFocus()) showDigestTimes()
                 Prefs.KEY_PENDING -> { showPending(); refreshInternet() }
                 Prefs.KEY_OUTAGES, Prefs.KEY_OFFLINE_SINCE -> refreshInternet()
-                Prefs.KEY_IGNORED -> if (!ignored.hasFocus()) ignored.setText(prefs.ignoredPackages)
                 Prefs.KEY_PAUSED_UNTIL -> refreshStatus()
                 Prefs.KEY_BOT_ENABLED -> refreshBot()
                 Prefs.KEY_UPDATE_STATUS -> refreshUpdate()
@@ -97,7 +98,6 @@ class MainActivity : Activity() {
         skipGroupSummary.isChecked = prefs.skipGroupSummary
         showApp.isChecked = prefs.showApp
         silent.isChecked = prefs.silent
-        ignored.setText(prefs.ignoredPackages)
         autoUpdate.isChecked = prefs.autoUpdate
         lowBatteryOn.isChecked = prefs.lowBatteryOn
         lowBatteryLevel.progress = prefs.lowBatteryLevel
@@ -139,6 +139,7 @@ class MainActivity : Activity() {
             background { Updater.check(this, install = true) }
         }
         findViewById<Button>(R.id.save).setOnClickListener { save(); toast("Saved") }
+        findViewById<Button>(R.id.add_rule).setOnClickListener { startActivity(Intent(this, RuleEditActivity::class.java)) }
         findViewById<Button>(R.id.test).setOnClickListener { save(); sendTest() }
         findViewById<Button>(R.id.detect).setOnClickListener { save(); detectChat() }
         findViewById<Button>(R.id.retry).setOnClickListener { save(); Outbox.flush(this); toast("Sending…") }
@@ -160,11 +161,13 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         prefs.raw.registerOnSharedPreferenceChangeListener(prefsListener)
-        ignored.setText(prefs.ignoredPackages)  // may have changed from the bot while we were away
         refreshStatus()
         refreshUpdate()
         showPending()
         showRecent()
+        showRules()
+        showDigestTimes()
+        showDigestStatus()
         ticker.run()
     }
 
@@ -206,7 +209,6 @@ class MainActivity : Activity() {
         prefs.skipGroupSummary = skipGroupSummary.isChecked
         prefs.showApp = showApp.isChecked
         prefs.silent = silent.isChecked
-        prefs.ignoredPackages = ignored.text.toString()
         prefs.autoUpdate = autoUpdate.isChecked
         prefs.lowBatteryOn = lowBatteryOn.isChecked
         if (prefs.lowBatteryLevel != lowBatteryLevel.progress) {
@@ -215,6 +217,60 @@ class MainActivity : Activity() {
         }
         prefs.updateRepo = updateRepo.text.toString().trim().removePrefix("https://github.com/").trim('/')
             .ifEmpty { Prefs.DEFAULT_UPDATE_REPO }
+        val times = digestTimes.text.split(',', ' ', ';').mapNotNull { Digest.parse(it) }
+        if (times.distinct().sorted() != Digest.times(prefs)) {
+            Digest.setTimes(this, prefs, times)
+            showDigestTimes()
+        }
+    }
+
+    private fun showDigestTimes() = digestTimes.setText(Digest.times(prefs).joinToString(", ") { Digest.format(it) })
+
+    private fun showDigestStatus() {
+        val waiting = prefs.digest().size
+        findViewById<TextView>(R.id.digest_status).text =
+            if (waiting == 0) "Nothing waiting." else waitingText(waiting).replace("waiting", "waiting for the digest")
+    }
+
+    /** Settings tab: each rule with an on/off switch; tap to edit. */
+    private fun showRules() {
+        val container = findViewById<LinearLayout>(R.id.rules_list)
+        container.removeAllViews()
+        val rules = prefs.rules()
+        if (rules.isEmpty()) {
+            container.addView(TextView(this).apply { text = "No rules yet."; alpha = 0.7f })
+            return
+        }
+        val order = listOf(Rule.Kind.ALWAYS, Rule.Kind.MUTE, Rule.Kind.MAP)
+        for (rule in rules.sortedBy { order.indexOf(it.kind) }) {
+            val what = when (rule.kind) {
+                Rule.Kind.ALWAYS -> "✅ Always forward"
+                Rule.Kind.MUTE -> when (rule.action) {
+                    Rule.Action.DROP -> "🔕 Drop"
+                    Rule.Action.DIGEST -> "📋 Digest"
+                    Rule.Action.SILENT -> "🤫 Silent"
+                }
+                Rule.Kind.MAP -> "✏️ Rewrite"
+            }
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, 8, 0, 8)
+                setOnClickListener {
+                    startActivity(Intent(this@MainActivity, RuleEditActivity::class.java).putExtra(RuleEditActivity.EXTRA_RULE_ID, rule.id))
+                }
+            }
+            row.addView(TextView(this).apply {
+                text = "${rule.label({ appLabel(this@MainActivity, it) })}\n$what"
+                textSize = 15f
+                alpha = if (rule.on) 1f else 0.5f
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(Switch(this).apply {
+                isChecked = rule.on
+                setOnCheckedChangeListener { _, on -> prefs.editRules { list -> list.map { if (it.id == rule.id) it.copy(on = on) else it } } }
+            })
+            container.addView(row)
+        }
     }
 
     private fun refreshStatus() {
@@ -339,18 +395,26 @@ class MainActivity : Activity() {
         val entries = prefs.recent()
         findViewById<View>(R.id.recent_empty).visibility = if (entries.isEmpty()) View.VISIBLE else View.GONE
         fillList(findViewById(R.id.recent_list), entries.map { e ->
+            val by = if (e.rule.isNotBlank()) " by rule «${e.rule}»" else ""
             val (status, color) = when {
+                e.status == "dropped" -> "🔕 dropped$by" to COLOR_DROPPED
+                e.status == "in digest" -> "📋 in digest$by" to COLOR_WAITING
+                e.status == "sent in digest" -> "📋 sent in digest" to COLOR_SENT
                 e.status == "queued" -> "🕓 waiting" to COLOR_WAITING
+                e.status.startsWith("sent") && e.action == Rule.Action.SILENT.key -> "🤫 ${e.status} silently$by" to COLOR_SENT
                 e.status.startsWith("sent") -> "✓ ${e.status}" to COLOR_SENT
                 e.status == "discarded" -> "– discarded" to COLOR_DROPPED
                 else -> "✗ ${e.status}" to COLOR_FAILED
             }
-            Item(e.time, e.app, e.title, e.text, status, color)
+            Item(e.time, e.app, e.outTitle.ifBlank { e.title }, e.outText.ifBlank { e.text }, status, color, ruleFrom = e)
         })
     }
 
-    /** One card on the Notifications tab. */
-    private class Item(val time: Long, val app: String, val title: String, val text: String, val status: String, val color: Int)
+    /** One card on the Notifications tab. [ruleFrom]: long press makes a rule from this notification. */
+    private class Item(
+        val time: Long, val app: String, val title: String, val text: String, val status: String, val color: Int,
+        val ruleFrom: LogEntry? = null,
+    )
 
     /** Shows [items] as cards (the newest [LIST_MAX]); tapping a card shows its full text. */
     private fun fillList(container: LinearLayout, items: List<Item>) {
@@ -372,6 +436,18 @@ class MainActivity : Activity() {
                 setTextColor(item.color)
             }
             card.setOnClickListener { body.maxLines = if (body.maxLines == Int.MAX_VALUE) 3 else Int.MAX_VALUE }
+            item.ruleFrom?.takeIf { it.pkg.isNotEmpty() && it.pkg != packageName }?.let { e ->
+                card.setOnLongClickListener {
+                    startActivity(
+                        Intent(this, RuleEditActivity::class.java)
+                            .putExtra(RuleEditActivity.EXTRA_EXAMPLE_PKG, e.pkg)
+                            .putExtra(RuleEditActivity.EXTRA_EXAMPLE_TITLE, e.title)
+                            .putExtra(RuleEditActivity.EXTRA_EXAMPLE_TEXT, e.text)
+                            .putExtra(RuleEditActivity.EXTRA_EXAMPLE_TIME, e.time)
+                    )
+                    true
+                }
+            }
             container.addView(card)
         }
         if (items.size > LIST_MAX) {

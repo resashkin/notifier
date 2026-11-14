@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Settings tab: forwarding switch and rules. -->
+<!-- Settings tab: forwarding switch, options, rules, digest, battery, updates. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/page_settings"
     style="@style/Page">
@@ -21,7 +21,7 @@
         <TextView
             style="@style/SectionTitle"
             android:paddingTop="12dp"
-            android:text="Rules" />
+            android:text="Options" />
 
         <CheckBox
             android:id="@+id/skip_ongoing"
@@ -47,21 +47,48 @@
             android:layout_height="wrap_content"
             android:text="Send silently (no Telegram sound)" />
 
+        <!-- Rules -->
+        <TextView
+            style="@style/SectionTitle"
+            android:text="Rules" />
+
         <TextView
             style="@style/Hint"
-            android:paddingTop="8dp"
-            android:text="Ignored apps (one package name per line)" />
+            android:text="Always forward beats mute; mute drops, silences or keeps for the digest (the strictest wins); rewrite changes the text (the first match). Also in Telegram: /rules or ⚙️ Settings. Long-press a notification to make a rule from it." />
 
-        <EditText
-            android:id="@+id/ignored"
+        <LinearLayout
+            android:id="@+id/rules_list"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:gravity="top"
+            android:orientation="vertical"
+            android:paddingTop="8dp" />
+
+        <Button
+            android:id="@+id/add_rule"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Add rule" />
+
+        <!-- Digest -->
+        <TextView
+            style="@style/SectionTitle"
+            android:text="Digest" />
+
+        <TextView
+            style="@style/Hint"
+            android:text="When notifications a rule sends to the digest arrive together: HH:MM, comma-separated. Empty = off (they wait for /digest)." />
+
+        <EditText
+            android:id="@+id/digest_times"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="09:00, 13:00, 19:00"
             android:importantForAutofill="no"
-            android:inputType="textMultiLine|textNoSuggestions"
-            android:minLines="3"
-            android:textSize="13sp" />
+            android:inputType="text|textNoSuggestions" />
+
+        <TextView
+            android:id="@+id/digest_status"
+            style="@style/Hint" />
 
         <!-- Battery -->
         <TextView

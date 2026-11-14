@@ -58,3 +58,9 @@ kotlin {
         jvmTarget.set(JvmTarget.JVM_17)
     }
 }
+
+dependencies {
+    // Local JVM tests only: the app itself has no dependencies. Android's org.json is a stub off-device.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
+}

@@ -27,7 +27,7 @@ class UpdateReceiver : BroadcastReceiver() {
                 context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
                 val version = Updater.installedVersion(context)
                 prefs.updateStatus = "updated to $version"
-                tellChat(prefs, "✅ Notifier updated to <b>${escapeHtml(version)}</b>")
+                tellChat(prefs, Lang.of(prefs)("✅ Notifier updated to <b>", "✅ Notifier обновлён до <b>") + escapeHtml(version) + "</b>")
             }
             ACTION_INSTALL_RESULT -> {
                 val version = intent.getStringExtra(EXTRA_VERSION).orEmpty()
@@ -43,7 +43,7 @@ class UpdateReceiver : BroadcastReceiver() {
                         val reason = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "unknown error"
                         prefs.updateStatus = "failed: $reason"
                         context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
-                        tellChat(prefs, "⚠️ Update to $version failed: ${escapeHtml(reason)}")
+                        tellChat(prefs, Lang.of(prefs)("⚠️ Update to $version failed: ", "⚠️ Не удалось обновить до $version: ") + escapeHtml(reason))
                     }
                 }
             }

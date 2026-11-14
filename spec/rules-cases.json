@@ -1,0 +1,203 @@
+{
+  "about": "Shared cases for the rules engine: android RulesSpecTest and miniapp test/rules_test.dart both run them. expect.action: null = forwarded normally. expect.title/text: what is sent (omitted = unchanged).",
+  "cases": [
+    {
+      "name": "app mute drops",
+      "rules": [{"id": "1", "k": "mute", "apps": ["ru.sberbankmobile"], "a": "drop"}],
+      "in": {"pkg": "ru.sberbankmobile", "title": "Сбербанк", "text": "Перевод 500 ₽"},
+      "expect": {"action": "drop"}
+    },
+    {
+      "name": "other app is not muted",
+      "rules": [{"id": "1", "k": "mute", "apps": ["ru.sberbankmobile"], "a": "drop"}],
+      "in": {"pkg": "com.whatsapp", "title": "Мама", "text": "Привет"},
+      "expect": {"action": null}
+    },
+    {
+      "name": "any word matches, case-insensitive, Cyrillic",
+      "rules": [{"id": "1", "k": "mute", "words": ["акция", "скидк"], "a": "digest"}],
+      "in": {"pkg": "com.shop", "title": "Магазин", "text": "СКИДКИ до 50% только сегодня"},
+      "expect": {"action": "digest"}
+    },
+    {
+      "name": "ё and е are the same letter",
+      "rules": [{"id": "1", "k": "mute", "words": ["ещё"], "a": "silent"}],
+      "in": {"pkg": "com.shop", "title": "Магазин", "text": "Еще больше бонусов"},
+      "expect": {"action": "silent"}
+    },
+    {
+      "name": "words also match the title",
+      "rules": [{"id": "1", "k": "mute", "words": ["реклама"], "a": "drop"}],
+      "in": {"pkg": "com.shop", "title": "Реклама", "text": "Новое предложение"},
+      "expect": {"action": "drop"}
+    },
+    {
+      "name": "chat must equal the title (any case), not just contain it",
+      "rules": [{"id": "1", "k": "mute", "chats": ["900"], "a": "drop"}],
+      "in": {"pkg": "com.google.android.apps.messaging", "title": "9000", "text": "Код 1234"},
+      "expect": {"action": null}
+    },
+    {
+      "name": "chat equals title",
+      "rules": [{"id": "1", "k": "mute", "chats": ["Work Chat"], "a": "silent"}],
+      "in": {"pkg": "com.whatsapp", "title": "work chat ", "text": "Meeting moved"},
+      "expect": {"action": "silent"}
+    },
+    {
+      "name": "conditions are ANDed: chat matches but no word",
+      "rules": [{"id": "1", "k": "mute", "chats": ["900"], "words": ["вклад"], "a": "drop"}],
+      "in": {"pkg": "com.google.android.apps.messaging", "title": "900", "text": "Покупка 1 250 ₽ PYATEROCHKA"},
+      "expect": {"action": null}
+    },
+    {
+      "name": "conditions are ANDed: chat and word match",
+      "rules": [{"id": "1", "k": "mute", "chats": ["900"], "words": ["вклад"], "a": "drop"}],
+      "in": {"pkg": "com.google.android.apps.messaging", "title": "900", "text": "Откройте вклад под 20%"},
+      "expect": {"action": "drop"}
+    },
+    {
+      "name": "regex condition, case-insensitive",
+      "rules": [{"id": "1", "k": "mute", "re": "promo(code)?\\b", "a": "drop"}],
+      "in": {"pkg": "com.shop", "title": "Shop", "text": "Your PROMOCODE inside"},
+      "expect": {"action": "drop"}
+    },
+    {
+      "name": "invalid regex never matches",
+      "rules": [{"id": "1", "k": "mute", "re": "([", "a": "drop"}],
+      "in": {"pkg": "com.shop", "title": "Shop", "text": "anything ["},
+      "expect": {"action": null}
+    },
+    {
+      "name": "mute rule without conditions is ignored",
+      "rules": [{"id": "1", "k": "mute", "a": "drop"}],
+      "in": {"pkg": "com.shop", "title": "Shop", "text": "Hi"},
+      "expect": {"action": null}
+    },
+    {
+      "name": "disabled rule is ignored",
+      "rules": [{"id": "1", "k": "mute", "on": false, "apps": ["com.shop"], "a": "drop"}],
+      "in": {"pkg": "com.shop", "title": "Shop", "text": "Hi"},
+      "expect": {"action": null}
+    },
+    {
+      "name": "exception beats a mute",
+      "rules": [
+        {"id": "1", "k": "mute", "apps": ["com.google.android.apps.messaging"], "a": "drop"},
+        {"id": "2", "k": "always", "words": ["код", "code"]}
+      ],
+      "in": {"pkg": "com.google.android.apps.messaging", "title": "900", "text": "Код подтверждения: 4821"},
+      "expect": {"action": null}
+    },
+    {
+      "name": "strictest mute wins (drop over silent), whatever the order",
+      "rules": [
+        {"id": "1", "k": "mute", "apps": ["com.shop"], "a": "silent"},
+        {"id": "2", "k": "mute", "words": ["sale"], "a": "drop"},
+        {"id": "3", "k": "mute", "words": ["sale"], "a": "digest"}
+      ],
+      "in": {"pkg": "com.shop", "title": "Shop", "text": "Big sale"},
+      "expect": {"action": "drop"}
+    },
+    {
+      "name": "digest beats silent",
+      "rules": [
+        {"id": "1", "k": "mute", "apps": ["com.shop"], "a": "silent"},
+        {"id": "2", "k": "mute", "words": ["sale"], "a": "digest"}
+      ],
+      "in": {"pkg": "com.shop", "title": "Shop", "text": "Big sale"},
+      "expect": {"action": "digest"}
+    },
+    {
+      "name": "map: cut phrases and links, then tidy",
+      "rules": [{"id": "1", "k": "map", "chats": ["900"], "cut": ["ПАО Сбербанк"], "links": true}],
+      "in": {"pkg": "com.google.android.apps.messaging", "title": "900", "text": "Ставка выросла! Подробнее: s.sber.ru/bwQKdx ПАО Сбербанк"},
+      "expect": {"action": null, "title": "900", "text": "Ставка выросла! Подробнее:"}
+    },
+    {
+      "name": "map: http links and www, blank lines collapse",
+      "rules": [{"id": "1", "k": "map", "links": true}],
+      "in": {"pkg": "com.x", "title": "X", "text": "Line one https://example.com/a?b=1\n\n\n\nLine two www.example.org ,end"},
+      "expect": {"action": null, "title": "X", "text": "Line one\n\nLine two,end"}
+    },
+    {
+      "name": "map: cut regex",
+      "rules": [{"id": "1", "k": "map", "cutRe": "\\s*Отписаться:.*$"}],
+      "in": {"pkg": "com.x", "title": "X", "text": "Новости недели. Отписаться: STOP на 1234"},
+      "expect": {"action": null, "title": "X", "text": "Новости недели."}
+    },
+    {
+      "name": "map: template with named groups and a new title",
+      "rules": [{
+        "id": "1", "k": "map", "chats": ["900"],
+        "parse": "Покупка (?<amount>[\\d ]+(?:[.,]\\d+)?) ?(?<cur>р|₽|RUB) (?<shop>.+?) Баланс",
+        "out": "💳 −{amount} {cur} · {shop}",
+        "outTitle": "Сбербанк"
+      }],
+      "in": {"pkg": "com.google.android.apps.messaging", "title": "900", "text": "MIR-1234 14:05 Покупка 1 250р PYATEROCHKA 7712 Баланс: 10 500р"},
+      "expect": {"action": null, "title": "Сбербанк", "text": "💳 −1 250 р · PYATEROCHKA 7712"}
+    },
+    {
+      "name": "map: template that doesn't match leaves the cleaned original",
+      "rules": [{"id": "1", "k": "map", "links": true, "parse": "Покупка (?<amount>\\d+)", "out": "💳 {amount}"}],
+      "in": {"pkg": "com.x", "title": "900", "text": "Акция! sber.ru/x"},
+      "expect": {"action": null, "title": "900", "text": "Акция!"}
+    },
+    {
+      "name": "map: numbered group, {title}, {app}, unknown placeholder empty",
+      "rules": [{"id": "1", "k": "map", "parse": "code (\\d+)", "out": "{1} for {title} via {app}{nope}"}],
+      "in": {"pkg": "com.x", "title": "Bank", "text": "Your code 4821 expires", "app": "Messages"},
+      "expect": {"action": null, "title": "Bank", "text": "4821 for Bank via Messages"}
+    },
+    {
+      "name": "map: {text} is the cleaned text",
+      "rules": [{"id": "1", "k": "map", "cut": ["Sent from my phone"], "parse": "^", "out": "📨 {text}"}],
+      "in": {"pkg": "com.x", "title": "Ann", "text": "See you at 7 Sent from my phone"},
+      "expect": {"action": null, "title": "Ann", "text": "📨 See you at 7"}
+    },
+    {
+      "name": "map: only the first matching map rule applies",
+      "rules": [
+        {"id": "1", "k": "map", "apps": ["com.x"], "cut": ["A"]},
+        {"id": "2", "k": "map", "apps": ["com.x"], "cut": ["B"]}
+      ],
+      "in": {"pkg": "com.x", "title": "T", "text": "A B C"},
+      "expect": {"action": null, "title": "T", "text": "B C"}
+    },
+    {
+      "name": "map still applies to a silent notification",
+      "rules": [
+        {"id": "1", "k": "mute", "apps": ["com.x"], "a": "silent"},
+        {"id": "2", "k": "map", "apps": ["com.x"], "links": true}
+      ],
+      "in": {"pkg": "com.x", "title": "T", "text": "Read https://x.io/a now"},
+      "expect": {"action": "silent", "title": "T", "text": "Read now"}
+    },
+    {
+      "name": "mute matches the original text, not the mapped one",
+      "rules": [
+        {"id": "1", "k": "map", "apps": ["com.x"], "cut": ["promo"]},
+        {"id": "2", "k": "mute", "words": ["promo"], "a": "digest"}
+      ],
+      "in": {"pkg": "com.x", "title": "T", "text": "promo inside"},
+      "expect": {"action": "digest", "title": "T", "text": "inside"}
+    },
+    {
+      "name": "exception without conditions is ignored",
+      "rules": [
+        {"id": "1", "k": "always"},
+        {"id": "2", "k": "mute", "apps": ["com.x"], "a": "drop"}
+      ],
+      "in": {"pkg": "com.x", "title": "T", "text": "t"},
+      "expect": {"action": "drop"}
+    },
+    {
+      "name": "unknown rule kind is skipped",
+      "rules": [
+        {"id": "1", "k": "future-kind", "apps": ["com.x"]},
+        {"id": "2", "k": "mute", "apps": ["com.x"], "a": "silent"}
+      ],
+      "in": {"pkg": "com.x", "title": "T", "text": "t"},
+      "expect": {"action": "silent"}
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 /// defines the object but [TelegramApp.inTelegram] is false and Telegram-only calls are no-ops.
 library;
 
+import 'dart:async';
 import 'dart:js_interop';
 import 'dart:ui';
 
@@ -21,9 +22,38 @@ extension type _WebApp._(JSObject _) implements JSObject {
   external _MainButton get mainButton;
   @JS('HapticFeedback')
   external _Haptic get haptic;
+  @JS('CloudStorage')
+  external _CloudStorage? get cloudStorage;
+  @JS('BackButton')
+  external _BackButton? get backButton;
+  external _InitData? get initDataUnsafe;
   external void ready();
   external void expand();
   external void sendData(String data);
+  external bool isVersionAtLeast(String version);
+}
+
+extension type _InitData._(JSObject _) implements JSObject {
+  external _User? get user;
+}
+
+extension type _User._(JSObject _) implements JSObject {
+  @JS('language_code')
+  external String? get languageCode;
+}
+
+/// Bot API 6.9+: up to 1024 keys per user and bot, values up to 4096 characters.
+extension type _CloudStorage._(JSObject _) implements JSObject {
+  external void setItem(String key, String value, JSFunction callback);
+  external void getItem(String key, JSFunction callback);
+  external void getItems(JSArray<JSString> keys, JSFunction callback);
+}
+
+extension type _BackButton._(JSObject _) implements JSObject {
+  external void show();
+  external void hide();
+  external void onClick(JSFunction callback);
+  external void offClick(JSFunction callback);
 }
 
 extension type _ThemeParams._(JSObject _) implements JSObject {
@@ -100,6 +130,72 @@ abstract final class TelegramApp {
 
   /// True when actually opened inside Telegram (Telegram passes signed launch data).
   static bool get inTelegram => (_app?.initData ?? '').isNotEmpty;
+
+  /// The user's Telegram app language ("ru", "en", …), null outside Telegram.
+  static String? get languageCode {
+    try {
+      return _app?.initDataUnsafe?.user?.languageCode;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static bool _atLeast(String version) {
+    try {
+      return _app?.isVersionAtLeast(version) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Telegram CloudStorage is there (Telegram 6.9+, opened inside Telegram).
+  static bool get hasCloudStorage => inTelegram && _atLeast('6.9') && _app?.cloudStorage != null;
+
+  /// Reads [keys] from CloudStorage; missing keys come back as "". Null on error or timeout.
+  static Future<Map<String, String>?> cloudGet(List<String> keys) {
+    final storage = _app?.cloudStorage;
+    if (storage == null || !hasCloudStorage) return Future.value(null);
+    final done = Completer<Map<String, String>?>();
+    storage.getItems(
+      [for (final k in keys) k.toJS].toJS,
+      (JSAny? error, JSAny? values) {
+        if (done.isCompleted) return;
+        final map = values?.dartify();
+        if (error != null || map is! Map) return done.complete(null);
+        done.complete({for (final k in keys) k: (map[k] as String?) ?? ''});
+      }.toJS,
+    );
+    return done.future.timeout(const Duration(seconds: 5), onTimeout: () => null);
+  }
+
+  /// Writes one CloudStorage value; true when Telegram confirmed it.
+  static Future<bool> cloudSet(String key, String value) {
+    final storage = _app?.cloudStorage;
+    if (storage == null || !hasCloudStorage) return Future.value(false);
+    final done = Completer<bool>();
+    storage.setItem(
+      key,
+      value,
+      (JSAny? error, JSAny? ok) {
+        if (!done.isCompleted) done.complete(error == null && ok?.dartify() == true);
+      }.toJS,
+    );
+    return done.future.timeout(const Duration(seconds: 5), onTimeout: () => false);
+  }
+
+  static JSFunction? _backHandler;
+
+  /// Telegram's back arrow in the header: shown while [onPressed] is set.
+  static void backButton(VoidCallback? onPressed) {
+    final button = _atLeast('6.1') ? _app?.backButton : null;
+    if (button == null || !inTelegram) return;
+    if (_backHandler != null) button.offClick(_backHandler!);
+    _backHandler = null;
+    if (onPressed == null) return button.hide();
+    _backHandler = onPressed.toJS;
+    button.onClick(_backHandler!);
+    button.show();
+  }
 
   /// Tells Telegram the app is ready (hides its placeholder) and opens it full height.
   static void ready() {

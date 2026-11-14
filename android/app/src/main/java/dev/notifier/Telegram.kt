@@ -10,8 +10,8 @@ import java.net.URLEncoder
 /** Minimal Telegram Bot API client. Blocking: call off the main thread. */
 object Telegram {
 
-    /** [markup] is an inline keyboard (see [Keyboards]) or null. */
-    fun sendMessage(token: String, chatId: String, html: String, silent: Boolean, markup: JSONObject? = null) {
+    /** [markup] is a keyboard (see [Keyboards]) or null. Returns the new message's id. */
+    fun sendMessage(token: String, chatId: String, html: String, silent: Boolean, markup: JSONObject? = null): Long {
         val params = mutableMapOf(
             "chat_id" to chatId,
             "text" to html,
@@ -20,7 +20,7 @@ object Telegram {
             "link_preview_options" to """{"is_disabled":true}""",
         )
         if (markup != null) params["reply_markup"] = markup.toString()
-        call(token, "sendMessage", params)
+        return call(token, "sendMessage", params).optJSONObject("result")?.optLong("message_id") ?: 0L
     }
 
     /** The bot's own user object (username, first_name); throws if the token is wrong. */
@@ -67,10 +67,11 @@ object Telegram {
         )
     }
 
-    /** Fills the bot's "/" menu. [commands] = command (without slash) to description. */
-    fun setCommands(token: String, commands: List<Pair<String, String>>) {
+    /** Fills the bot's "/" menu. [commands] = command (without slash) to description; [language] = for users
+     *  whose Telegram is in that language ("ru"), null = everyone else. */
+    fun setCommands(token: String, commands: List<Pair<String, String>>, language: String? = null) {
         val json = JSONArray(commands.map { (c, d) -> JSONObject().put("command", c).put("description", d) })
-        call(token, "setMyCommands", mapOf("commands" to json.toString()))
+        call(token, "setMyCommands", listOfNotNull("commands" to json.toString(), language?.let { "language_code" to it }).toMap())
     }
 
     private fun call(
@@ -113,30 +114,25 @@ class TelegramException(val code: Int, description: String, val retryAfterSec: I
     val setupProblem get() = code == 401 || code == 403 || (code == 400 && !rejected)
 }
 
-/** Inline keyboards. Callback data: "m:<pkg>" mute, "u:<pkg>" unmute, "l:<pkg>" unmute from /muted list,
- *  "p:<minutes>" pause, "r" resume. Telegram limits callback data to 64 bytes. */
+/** Keyboards. Callback data: "p:<minutes>" pause, "r" resume. Messages sent by older versions carry
+ *  "m:<pkg>" mute, "u:<pkg>" unmute and "l:<pkg>" (unmute from the old /muted list); those still work.
+ *  Telegram limits callback data to 64 bytes. */
 object Keyboards {
-    fun forNotification(pkg: String, app: String): JSONObject? {
-        val mute = button("🔕 Mute $app", "m:$pkg") ?: return null
-        return keyboard(listOf(listOfNotNull(mute, button("⏸ Pause 1h", "p:60"))))
-    }
+    fun unmute(pkg: String, app: String, t: Lang): JSONObject =
+        keyboard(listOf(listOfNotNull(button(t("🔔 Unmute $app", "🔔 Включить $app"), "u:$pkg"))))
 
-    fun unmute(pkg: String, app: String): JSONObject =
-        keyboard(listOf(listOfNotNull(button("🔔 Unmute $app", "u:$pkg"))))
-
-    fun mutedList(apps: List<Pair<String, String>>): JSONObject =
-        keyboard(apps.mapNotNull { (pkg, label) -> button("🔔 Unmute $label", "l:$pkg")?.let { listOf(it) } })
-
-    fun resume(): JSONObject = keyboard(listOf(listOfNotNull(button("▶️ Resume now", "r"))))
+    fun resume(t: Lang): JSONObject = keyboard(listOf(listOfNotNull(button(t("▶️ Resume now", "▶️ Продолжить"), "r"))))
 
     fun none(): JSONObject = keyboard(emptyList())
 
-    /** Reply keyboard (below the message field) that opens the settings Mini App. Mini Apps can only
+    /** Reply keyboard (below the message field) that opens the settings Mini App at [url]. Mini Apps can only
      *  send data back to the bot (sendData) when opened from this kind of button, not inline buttons. */
-    fun settings(url: String): JSONObject = JSONObject()
-        .put("keyboard", JSONArray().put(JSONArray().put(JSONObject().put("text", "⚙️ Settings").put("web_app", JSONObject().put("url", url)))))
+    fun miniApp(text: String, url: String): JSONObject = JSONObject()
+        .put("keyboard", JSONArray().put(JSONArray().put(JSONObject().put("text", text).put("web_app", JSONObject().put("url", url)))))
         .put("resize_keyboard", true)
         .put("is_persistent", true)
+
+    fun settings(url: String, t: Lang): JSONObject = miniApp(t("⚙️ Settings", "⚙️ Настройки"), url)
 
     private fun button(text: String, data: String): JSONObject? =
         if (data.toByteArray().size > 64) null else JSONObject().put("text", text).put("callback_data", data)

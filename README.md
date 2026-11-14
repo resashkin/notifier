@@ -4,8 +4,10 @@ Forward your Android phone's notifications to a Telegram bot, so you can read th
 the Android phone left in a drawer.
 
 - **One Telegram message per notification.** Chat apps' "3 new messages" bundles are split into separate messages.
-- **Controlled from Telegram.** Mute an app with a button under its message, `/pause` forwarding, or open a settings
-  Mini App with per-app switches.
+- **Smart mute and rewrite.** Rules by app, chat, words or regex: drop, send silently or keep for a digest a few times
+  a day; always forward what matters (codes, family); turn noisy texts into one short line. Edited in a Mini App in
+  Telegram or on the phone, with a live preview on your recent notifications.
+- **Controlled from Telegram.** `/pause` forwarding, `/rules`, or open the settings Mini App.
 - **Nothing lost offline.** Notifications that can't be sent wait in a queue and follow, with their original time,
   once the internet is back — after a message saying how long it was gone.
 - **No server.** The phone talks to the Telegram Bot API directly; the bot token never leaves the phone.
@@ -63,9 +65,12 @@ USB debugging is not needed afterwards — you can turn developer options off ag
 
 ## Using it from Telegram
 
-- Under each forwarded message: **🔕 Mute <app>** (one tap to undo) and **⏸ Pause 1h**.
-- `/pause [minutes]`, `/resume`, `/muted`, `/status` (includes phone health), `/update`.
-- `/settings` → **⚙️ Settings** button → Mini App with per-app switches, pause and rules.
+- `/rules` — the rules; `/rule` as a reply to a forwarded message opens the rule editor with that notification.
+- `/digest` — send what's waiting for the digest now.
+- `/pause [minutes]`, `/resume`, `/status` (includes phone health), `/update`.
+- `/settings` → **⚙️ Settings** button → Mini App with rules, per-app switches, digest times, pause and options.
+
+The bot answers in Russian or English, following your Telegram language.
 
 Only the chat ID configured on the phone can control it. **Stop bot** on the app's Telegram tab turns commands and
 buttons off; notifications are still forwarded.
@@ -121,13 +126,35 @@ Two fields need optional permissions, requested by **Show Wi-Fi name & mobile ne
 the Wi-Fi name (location, *Allow all the time*, since `/status` is answered in the background) and the mobile network
 type (phone state). Everything else works without them.
 
+## Rules
+
+Three kinds, checked in this order:
+
+1. **Always forward** — exceptions: a matching notification is forwarded even if a mute rule matches it.
+2. **Mute** — **drop** it, send it **silently**, or keep it for the **digest**. If several match, the strictest wins
+   (drop, then digest, then silent). Mute rules look at the original text.
+3. **Rewrite** — what is sent: cut phrases, a regex and links, or parse the text with a regex
+   (`Покупка (?<amount>[\d ]+)р (?<shop>.+?) Баланс`) and fill a template (`💳 −{amount} ₽ · {shop}`). Only the first
+   matching rewrite rule applies; if its template regex doesn't match, the cleaned text is sent.
+
+Conditions are combined with AND: app, chat or sender (the notification title, exactly), words or phrases (any of
+them), regex. Letter case and ё/е don't matter. The per-app switches are rules too (app → drop).
+
+The **digest** goes out at fixed times (09:00, 13:00, 19:00 by default), grouped by app, with sound; an empty digest
+isn't sent. The phone and the Mini App run the same engine on the same test cases ([`spec/rules-cases.json`](spec)),
+so the Mini App's preview matches what the phone does.
+
 ## How the Mini App works without a server
 
 1. `/settings`: the phone replies with a keyboard button whose link carries the current state
-   (`?s=` = gzip + base64url JSON: rules, pause, apps seen with their mute state).
+   (`?s=` = gzip + base64url JSON: options, pause, apps seen, recent notifications, rule changes).
 2. The Mini App (static page on GitHub Pages) shows it; **Save** calls `Telegram.WebApp.sendData` with only the
    changes (≤ 4 KB).
 3. The phone receives them as a `web_app_data` message via its `getUpdates` polling and applies them.
+
+Rules soon outgrow a link, so the Mini App keeps a copy in Telegram CloudStorage (per user and bot) and the link only
+carries what changed since the copy the Mini App last confirmed. Each save names the revision it started from; edits
+made on the phone in the meantime are kept ([`miniapp/lib/sync.dart`](miniapp/lib/sync.dart)).
 
 The hosted page holds no data. To use your own deployment, enable GitHub Pages (*Settings → Pages → Source: GitHub Actions*)
 on your fork — [`.github/workflows/miniapp.yml`](.github/workflows/miniapp.yml) builds and publishes `miniapp/` — and put
